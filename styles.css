@@ -1,0 +1,543 @@
+/*
+This CSS file will be included with your plugin, and
+available in the app when your plugin is enabled.
+If your plugin does not need CSS, delete this file.
+*/
+
+/* === Inline LRC code block === */
+
+.block-language-lrc {
+    font-family: var(--font-monospace);
+}
+
+.lyrics-timestamp {
+    color: var(--text-accent);
+    cursor: pointer;
+    width: 5.5rem;
+    display: inline-block;
+    padding: 5px 0;
+    user-select: none;
+}
+
+.lyrics-line p {
+    flex: 1;
+    padding: 5px;
+    margin: 0;
+}
+
+.lyrics-timestamp::hover {
+    color: var(--text-accent-hover);
+    cursor: pointer;
+}
+
+.player-wrapper {
+    background-color: var(--background-primary);
+    padding: 4px 0;
+}
+
+.lyrics-line {
+    display: flex;
+    padding: 3px;
+}
+
+.lyrics-text {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    padding: 0 0.8rem;
+}
+
+.lyrics-highlighted .lyrics-text {
+    background-color: var(--text-selection);
+    border-radius: 5px;
+}
+
+.lyrics-line-past {
+    opacity: 0.5;
+}
+
+.lyrics-line-future {
+    opacity: 0.7;
+}
+
+.lyrics-show-marked .lyrics-line[data-mark='false'] {
+    display: none;
+}
+
+/* Karaoke word highlighting (inline) */
+.lyrics-text.lyrics-karaoke {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0;
+}
+
+.lyrics-word {
+    display: inline;
+    white-space: pre;
+    transition: color 0.15s ease, text-shadow 0.15s ease;
+}
+
+.lyrics-word-active {
+    color: var(--text-accent);
+    text-shadow: 0 0 8px var(--text-accent);
+}
+
+.lyrics-lang-secondary {
+    color: var(--text-muted);
+    font-size: 0.9em;
+    opacity: 0.7;
+}
+
+/* === Sidebar container === */
+
+.lyrics-panel-container {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+}
+
+/* Override Obsidian's default view-content padding */
+.view-content:has(.lyrics-panel-container) {
+    padding: 0 !important;
+    overflow: hidden;
+}
+
+/* === Lyrics scroll area === */
+
+.lyrics-panel-content {
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+    padding: 8px;
+    padding-bottom: 44px;
+    font-family: var(--font-text);
+    font-size: var(--font-text-size);
+}
+
+.lyrics-panel-empty {
+    color: var(--text-muted);
+    text-align: center;
+    padding: 32px 16px;
+    font-size: var(--font-ui-small);
+}
+
+.lyrics-panel-line {
+    display: flex;
+    padding: 4px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.15s;
+}
+
+.lyrics-panel-line:hover {
+    background: var(--background-modifier-hover);
+}
+
+.lyrics-panel-highlighted {
+    background-color: var(--text-selection) !important;
+}
+
+.lyrics-panel-past {
+    font-size: 0.85em;
+    opacity: 0.6;
+}
+
+.lyrics-panel-future {
+    font-size: 0.85em;
+    opacity: 0.8;
+}
+
+.lyrics-panel-text {
+    flex: 1;
+    padding-left: 8px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0;
+}
+
+.lyrics-panel-annotation {
+    color: var(--text-muted);
+    font-size: 0.85em;
+    opacity: 0.7;
+    padding-left: 8px;
+    width: 100%;
+}
+
+/* Karaoke words (sidebar) */
+.lyrics-panel-word,
+.lyrics-panel-word-active {
+    white-space: pre;
+    transition: color 0.12s ease;
+}
+
+.lyrics-panel-word {
+    opacity: 0.5;
+}
+
+.lyrics-panel-word-active {
+    color: var(--text-accent);
+    text-shadow: 0 0 6px var(--text-accent);
+    opacity: 1;
+}
+
+/* Floating play/pause button */
+.lyrics-panel-play-btn {
+    position: absolute;
+    bottom: 52px;
+    right: 12px;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background-color: var(--text-accent);
+    color: var(--text-on-accent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 50;
+    flex-shrink: 0;
+    transition: opacity 0.15s, transform 0.15s;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.lyrics-panel-play-btn:hover {
+    opacity: 0.85;
+    transform: scale(1.05);
+}
+
+.lyrics-panel-play-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.lyrics-panel-play-hidden {
+    display: none;
+}
+
+/* === Status bar === */
+
+.lyrics-statusbar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: default;
+    padding: 6px 10px;
+    border-top: 1px solid var(--background-modifier-border);
+    background: var(--background-primary);
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 40;
+}
+
+.lyrics-statusbar-controls {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+
+.lyrics-statusbar-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    cursor: pointer;
+    opacity: 0.7;
+    transition: opacity 0.15s;
+    flex-shrink: 0;
+}
+
+.lyrics-statusbar-btn:hover {
+    opacity: 1;
+}
+
+/* Shuffle / Loop mode buttons */
+.lyrics-statusbar-mode-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+    opacity: 0.4;
+    transition: opacity 0.15s, color 0.15s;
+    flex-shrink: 0;
+    color: var(--text-muted);
+}
+
+.lyrics-statusbar-mode-btn:hover {
+    opacity: 0.7;
+}
+
+.lyrics-mode-active {
+    opacity: 1 !important;
+    color: var(--text-accent) !important;
+}
+
+.lyrics-statusbar-info {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+}
+
+.lyrics-statusbar-song {
+    font-size: var(--font-ui-small);
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 200px;
+    cursor: pointer;
+}
+
+.lyrics-statusbar-song:hover {
+    color: var(--text-normal);
+}
+
+.lyrics-statusbar-time {
+    font-size: var(--font-ui-small);
+    color: var(--text-muted);
+    white-space: nowrap;
+    flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Speed button */
+.lyrics-statusbar-speed-btn {
+    font-size: 11px;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 1px 4px;
+    border-radius: 4px;
+    white-space: nowrap;
+    flex-shrink: 0;
+    transition: color 0.15s, background 0.15s;
+    user-select: none;
+}
+
+.lyrics-statusbar-speed-btn:hover {
+    color: var(--text-normal);
+    background: var(--background-modifier-hover);
+}
+
+/* === Song list popup (replaces lyrics content) === */
+
+.lyrics-song-popup {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-height: 0;
+    font-family: var(--font-text);
+    font-size: var(--font-text-size);
+}
+
+.lyrics-song-popup-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    font-size: var(--font-ui-small);
+    font-weight: 600;
+    color: var(--text-normal);
+    border-bottom: 1px solid var(--background-modifier-border);
+    flex-shrink: 0;
+}
+
+.lyrics-song-popup-close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    cursor: pointer;
+    color: var(--text-muted);
+    border-radius: 4px;
+    transition: color 0.15s;
+}
+
+.lyrics-song-popup-close:hover {
+    color: var(--text-normal);
+}
+
+.lyrics-song-popup-search {
+    padding: 4px 12px 8px;
+    flex-shrink: 0;
+}
+
+.lyrics-song-popup-search-input {
+    width: 100%;
+    padding: 5px 8px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    background: var(--background-primary);
+    color: var(--text-normal);
+    font-family: var(--font-text);
+    font-size: var(--font-ui-small);
+    outline: none;
+    transition: border-color 0.15s;
+}
+
+.lyrics-song-popup-search-input:focus {
+    border-color: var(--text-accent);
+}
+
+.lyrics-song-popup-list {
+    overflow-y: auto;
+    padding: 4px;
+    flex: 1;
+    min-height: 0;
+}
+
+/* === Song list items === */
+
+.lyrics-songs-empty {
+    color: var(--text-muted);
+    text-align: center;
+    padding: 32px 16px;
+    font-size: var(--font-ui-small);
+}
+
+.lyrics-songs-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 6px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background-color 0.15s;
+}
+
+.lyrics-songs-item:hover {
+    background: var(--background-modifier-hover);
+}
+
+.lyrics-songs-item-active {
+    background-color: var(--text-selection) !important;
+}
+
+.lyrics-songs-playing-indicator {
+    display: inline-block;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background-color: var(--text-accent);
+    flex-shrink: 0;
+}
+
+/* Banner thumbnail */
+.lyrics-songs-item-thumb {
+    width: 36px;
+    height: 36px;
+    border-radius: 4px;
+    overflow: hidden;
+    flex-shrink: 0;
+    background: var(--background-modifier-border);
+}
+
+.lyrics-songs-item-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.lyrics-songs-item-info {
+    min-width: 0;
+    flex: 1;
+}
+
+.lyrics-songs-item-title {
+    font-size: var(--font-ui-normal);
+    color: var(--text-normal);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.lyrics-songs-item-actor {
+    font-size: var(--font-ui-small);
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* === Utility === */
+
+.lyrics-panel-hidden {
+    display: none !important;
+}
+
+/* === Folder suggestion dropdown === */
+
+.lyrics-folder-input-wrap {
+    position: relative;
+    width: 100%;
+}
+
+.lyrics-folder-input {
+    width: 100%;
+    padding: 4px 8px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    background: var(--background-primary);
+    color: var(--text-normal);
+    font-family: var(--font-text);
+    font-size: var(--font-ui-small);
+    outline: none;
+    transition: border-color 0.15s;
+}
+
+.lyrics-folder-input:focus {
+    border-color: var(--text-accent);
+}
+
+.lyrics-folder-suggestions {
+    position: absolute;
+    top: 100%;
+    left: -40px;
+    right: -40px;
+    min-width: 100%;
+    max-height: 240px;
+    overflow-y: auto;
+    background: var(--background-primary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    z-index: 100;
+}
+
+.lyrics-folder-suggestion-item {
+    padding: 5px 10px;
+    font-size: var(--font-ui-small);
+    color: var(--text-normal);
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: background 0.1s;
+}
+
+.lyrics-folder-suggestion-item:hover {
+    background: var(--background-modifier-hover);
+}
+
+.lyrics-folder-suggestion-highlight {
+    color: var(--text-accent);
+    font-weight: 600;
+}
+
+.lyrics-folder-suggestion-path {
+    color: var(--text-muted);
+    font-size: 10px;
+    margin-left: 6px;
+}
