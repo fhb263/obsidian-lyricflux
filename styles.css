@@ -235,6 +235,7 @@ If your plugin does not need CSS, delete this file.
     left: 0;
     right: 0;
     z-index: 40;
+    flex-wrap: nowrap;
 }
 
 .lyrics-statusbar-controls {
@@ -307,6 +308,7 @@ If your plugin does not need CSS, delete this file.
     color: var(--text-muted);
     white-space: nowrap;
     flex-shrink: 0;
+    margin-left: auto;
     font-variant-numeric: tabular-nums;
 }
 
@@ -326,6 +328,88 @@ If your plugin does not need CSS, delete this file.
 .lyrics-statusbar-speed-btn:hover {
     color: var(--text-normal);
     background: var(--background-modifier-hover);
+}
+
+/* Volume icon + floating popup */
+
+.lyrics-statusbar-volume-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    cursor: pointer;
+    opacity: 0.7;
+    transition: opacity 0.15s;
+    position: relative;
+}
+
+.lyrics-statusbar-volume-icon:hover {
+    opacity: 1;
+}
+
+.lyrics-statusbar-volume-icon svg {
+    width: 16px;
+    height: 16px;
+}
+
+.lyrics-volume-popup {
+    position: fixed;
+    background: var(--background-primary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    padding: 10px 6px 6px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    z-index: 200;
+}
+
+.lyrics-volume-popup-slider-wrap {
+    width: 24px;
+    height: 70px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.lyrics-volume-popup-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 60px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--background-modifier-border);
+    outline: none;
+    cursor: pointer;
+    transform: rotate(-90deg);
+}
+
+.lyrics-volume-popup-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--text-accent);
+    cursor: pointer;
+}
+
+.lyrics-volume-popup-slider::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--text-accent);
+    border: none;
+    cursor: pointer;
+}
+
+.lyrics-volume-popup-label {
+    font-size: 10px;
+    color: var(--text-muted);
+    text-align: center;
+    white-space: nowrap;
 }
 
 /* === Song list popup (replaces lyrics content) === */
@@ -504,40 +588,33 @@ If your plugin does not need CSS, delete this file.
 .lyrics-folder-suggestions {
     position: absolute;
     top: 100%;
-    left: -40px;
-    right: -40px;
+    left: 0;
+    right: 0;
     min-width: 100%;
     max-height: 240px;
     overflow-y: auto;
     background: var(--background-primary);
     border: 1px solid var(--background-modifier-border);
-    border-radius: 4px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
     z-index: 100;
+    padding: 4px;
 }
 
 .lyrics-folder-suggestion-item {
-    padding: 5px 10px;
+    padding: 5px 8px;
     font-size: var(--font-ui-small);
     color: var(--text-normal);
     cursor: pointer;
+    border-radius: 4px;
+    text-align: left;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
     transition: background 0.1s;
 }
 
-.lyrics-folder-suggestion-item:hover {
+.lyrics-folder-suggestion-item:hover,
+.lyrics-folder-suggestion-active {
     background: var(--background-modifier-hover);
-}
-
-.lyrics-folder-suggestion-highlight {
-    color: var(--text-accent);
-    font-weight: 600;
-}
-
-.lyrics-folder-suggestion-path {
-    color: var(--text-muted);
-    font-size: 10px;
-    margin-left: 6px;
 }
