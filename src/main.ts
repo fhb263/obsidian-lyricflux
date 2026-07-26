@@ -155,6 +155,14 @@ export default class LyricsPlugin extends Plugin {
 
     public getVolume(): number { return this._volume }
 
+    public setVolume(vol: number) {
+        this._volume = Math.max(0, Math.min(100, vol))
+        for (const renderer of this.activeRenderers.values()) {
+            if (renderer.player) renderer.player.setVolume(this._volume / 100)
+        }
+        this.stateListeners.forEach((cb) => cb(this.state))
+    }
+
     public cycleVolume() {
         const idx = VOLUME_OPTIONS.indexOf(this._volume)
         this._volume = VOLUME_OPTIONS[(idx + 1) % VOLUME_OPTIONS.length]
@@ -260,16 +268,20 @@ export default class LyricsPlugin extends Plugin {
             callback: () => this.activateLyricsView(),
         })
 
-        // Re-emit state when switching to a different note (renderer may be ready)
+        // Re-emit state when switching to a note with a renderer
         this.registerEvent(this.app.workspace.on('active-leaf-change', () => {
-            // Small delay to let renderer register
             setTimeout(() => {
-                // Force state update from any registered renderer
-                for (const renderer of this.activeRenderers.values()) {
-                    if (renderer.player) {
+                const activeFile = this.app.workspace.getActiveFile()
+                if (activeFile) {
+                    const renderer = this.activeRenderers.get(activeFile.path)
+                    if (renderer) {
                         renderer.emitState()
-                        break
+                        return
                     }
+                }
+                // Only clear if no renderer is registered at all
+                if (this.activeRenderers.size === 0) {
+                    this.updateLyricsState(null)
                 }
             }, 300)
         }))
@@ -306,6 +318,10 @@ class LyricsView extends ItemView {
     private songListPopup: HTMLElement | null = null
     private songListSearchEl: HTMLInputElement | null = null
 
+    private statusBarVolumeIcon: HTMLElement | null = null
+    private volumePopup: HTMLElement | null = null
+    private volumeOutsideClickHandler: ((e: MouseEvent) => void) | null = null
+
     constructor(leaf: WorkspaceLeaf, plugin: LyricsPlugin) {
         super(leaf)
         this.plugin = plugin
@@ -335,6 +351,7 @@ class LyricsView extends ItemView {
 
     async onClose() {
         this.closeSongListPopup()
+        this.closeVolumePopup()
         this.plugin.removeLyricsStateListener(this._onStateChange)
     }
 
@@ -357,6 +374,7 @@ class LyricsView extends ItemView {
 
         // Single loop
         this.statusBarMode = this.statusBar.createSpan({ cls: 'lyrics-statusbar-mode-btn' })
+        this.statusBarMode.setAttribute('title', '开启/关闭单曲循环')
         this.statusBarMode.addEventListener('click', () => {
             this.plugin.toggleSingleLoop()
             this.renderModeIcon()
@@ -365,19 +383,28 @@ class LyricsView extends ItemView {
         // Play/pause
         const controls = this.statusBar.createDiv({ cls: 'lyrics-statusbar-controls' })
         this.statusBarPlay = controls.createSpan({ cls: 'lyrics-statusbar-btn' })
+        this.statusBarPlay.setAttribute('title', '播放/暂停')
         setIcon(this.statusBarPlay, 'play')
         this.statusBarPlay.addEventListener('click', () => this.plugin.toggleActivePlayer())
 
-        // Volume
-        this.statusBarVolume = this.statusBar.createSpan({ cls: 'lyrics-statusbar-speed-btn' })
+        // Volume button + floating slider popup
+        this.statusBarVolumeIcon = this.statusBar.createSpan({ cls: 'lyrics-statusbar-volume-icon' })
         this.renderVolumeIcon()
-        this.statusBarVolume.addEventListener('click', () => {
-            this.plugin.cycleVolume()
-            this.renderVolumeIcon()
+        this.statusBarVolumeIcon.addEventListener('mousedown', (e) => {
+            e.stopPropagation()
+        })
+        this.statusBarVolumeIcon.addEventListener('click', (e) => {
+            e.stopPropagation()
+            if (this.volumePopup) {
+                this.closeVolumePopup()
+            } else {
+                this.openVolumePopup()
+            }
         })
 
         // Speed
         this.statusBarSpeed = this.statusBar.createSpan({ cls: 'lyrics-statusbar-speed-btn' })
+        this.statusBarSpeed.setAttribute('title', '调整播放倍速')
         this.statusBarSpeed.setText(`${this.plugin.getPlaybackRate()}x`)
         this.statusBarSpeed.addEventListener('click', () => {
             this.plugin.cyclePlaybackRate()
@@ -411,11 +438,62 @@ class LyricsView extends ItemView {
     }
 
     private renderVolumeIcon() {
-        if (!this.statusBarVolume) return
+        if (!this.statusBarVolumeIcon) return
         const vol = this.plugin.getVolume()
         const icon = vol === 0 ? 'volume-x' : vol < 50 ? 'volume-1' : 'volume-2'
-        setIcon(this.statusBarVolume, icon)
-        this.statusBarVolume.setAttribute('aria-label', `音量 ${vol}%`)
+        setIcon(this.statusBarVolumeIcon, icon)
+        this.statusBarVolumeIcon.setAttribute('title', `音量 ${vol}%`)
+    }
+
+    private toggleVolumePopup() {
+        if (this.volumePopup) { this.closeVolumePopup(); return }
+        this.openVolumePopup()
+    }
+
+    private openVolumePopup() {
+        if (!this.statusBarVolumeIcon) return
+        this.closeVolumePopup()
+        this.volumePopup = document.body.createDiv({ cls: 'lyrics-volume-popup' })
+        // Prevent interactions inside popup from closing it
+        this.volumePopup.addEventListener('pointerdown', (e) => e.stopPropagation())
+        this.volumePopup.addEventListener('click', (e) => e.stopPropagation())
+        const vol = this.plugin.getVolume()
+        const sliderWrap = this.volumePopup.createDiv({ cls: 'lyrics-volume-popup-slider-wrap' })
+        const slider = sliderWrap.createEl('input', {
+            cls: 'lyrics-volume-popup-slider',
+            attr: { type: 'range', min: '0', max: '100', step: '5', value: String(vol) },
+        }) as HTMLInputElement
+        const label = this.volumePopup.createDiv({ cls: 'lyrics-volume-popup-label', text: `${vol}%` })
+        // Position popup above the volume icon
+        const iconRect = this.statusBarVolumeIcon.getBoundingClientRect()
+        const popupWidth = 36
+        this.volumePopup.style.left = `${iconRect.left + iconRect.width / 2 - popupWidth / 2}px`
+        this.volumePopup.style.top = `${iconRect.top - 4}px`
+        this.volumePopup.style.transform = 'translateY(-100%)'
+        slider.addEventListener('input', () => {
+            const val = Number(slider.value)
+            this.plugin.setVolume(val)
+            this.renderVolumeIcon()
+            label.setText(`${val}%`)
+        })
+        // Click outside to close
+        this.volumeOutsideClickHandler = (e: MouseEvent) => {
+            if (!this.volumePopup?.contains(e.target as Node)) {
+                this.closeVolumePopup()
+            }
+        }
+        // Use setTimeout(0) so the current click event finishes first
+        setTimeout(() => {
+            document.addEventListener('mousedown', this.volumeOutsideClickHandler!)
+        }, 0)
+    }
+
+    private closeVolumePopup() {
+        if (this.volumePopup) { this.volumePopup.remove(); this.volumePopup = null }
+        if (this.volumeOutsideClickHandler) {
+            document.removeEventListener('pointerdown', this.volumeOutsideClickHandler)
+            this.volumeOutsideClickHandler = null
+        }
     }
 
     private renderStatusBar(state: LyricsState | null) {
@@ -434,6 +512,7 @@ class LyricsView extends ItemView {
         const actor = state.actor || '未知艺术家'
         this.statusBarTitle.setText(`${title} - ${actor}`)
         setIcon(this.statusBarPlay!, state.isPlaying ? 'pause' : 'play')
+        this.statusBarPlay!.setAttribute('title', state.isPlaying ? '暂停' : '播放')
         if (this.statusBarTime) {
             if (state.duration) {
                 this.statusBarTime.setText(`${this.formatTime(state.currentTime)} / ${this.formatTime(state.duration)}`)
@@ -486,35 +565,37 @@ class LyricsView extends ItemView {
             const textEl = lineEl.createSpan({ cls: 'lyrics-panel-text' })
 
             if (state.karaoke && isCurrent && line.text.trim()) {
-                let text = line.text.trim()
-                const annotationMatch = text.match(/<([^>]+)>/)
-                const annotation = annotationMatch ? annotationMatch[1] : ''
-                if (annotationMatch) text = text.replace(/<[^>]+>/, '').trim()
-
-                const words = text.match(/[\u0600-\u06ff\u0750-\u077f\u08a0-\u08ff\ufe70-\ufeff\u0900-\u097f\u0e00-\u0e7f\u0f00-\u0fff\u4e00-\u9fff\u3400-\u4dbf\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af\u3130-\u318f]|[a-zA-Z0-9\u0400-\u04ff\u0530-\u058f\u10a0-\u10ff]+|\s+/g)
-                if (words && words.length > 0) {
-                    const start = line.timestamp || 0
-                    const end = index + 1 < state.lyrics.length
-                        ? (state.lyrics[index + 1].timestamp || start + 3000)
-                        : start + 3000
-                    const perWord = (end - start) / words.length
-                    words.forEach((w, j) => {
+                // Use precise word timestamps if available from LRC parser
+                if (line.words && line.words.length > 0) {
+                    line.words.forEach((word) => {
                         textEl.createSpan({
-                            cls: (start + j * perWord) <= timeMs ? 'lyrics-panel-word-active' : 'lyrics-panel-word',
-                            text: w,
+                            cls: word.timestamp <= timeMs ? 'lyrics-panel-word-active' : 'lyrics-panel-word',
+                            text: word.text,
                         })
                     })
                 } else {
-                    textEl.setText(text)
+                    // Fallback: auto-distribute timestamps across words
+                    const words = line.text.match(/[\u0600-\u06ff\u0750-\u077f\u08a0-\u08ff\ufe70-\ufeff\u0900-\u097f\u0e00-\u0e7f\u0f00-\u0fff\u4e00-\u9fff\u3400-\u4dbf\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af\u3130-\u318f]|[a-zA-Z0-9\u0400-\u04ff\u0530-\u058f\u10a0-\u10ff]+|\s+/g)
+                    if (words && words.length > 0) {
+                        const start = line.timestamp || 0
+                        const end = index + 1 < state.lyrics.length
+                            ? (state.lyrics[index + 1].timestamp || start + 3000)
+                            : start + 3000
+                        const perWord = (end - start) / words.length
+                        words.forEach((w, j) => {
+                            textEl.createSpan({
+                                cls: (start + j * perWord) <= timeMs ? 'lyrics-panel-word-active' : 'lyrics-panel-word',
+                                text: w,
+                            })
+                        })
+                    } else {
+                        textEl.setText(line.text)
+                    }
                 }
-                if (annotation) textEl.createDiv({ cls: 'lyrics-panel-annotation', text: annotation })
+                if (line.annotation) textEl.createDiv({ cls: 'lyrics-panel-annotation', text: line.annotation })
             } else {
-                let displayText = line.text
-                const annotationMatch = displayText.match(/<([^>]+)>/)
-                const annotation = annotationMatch ? annotationMatch[1] : ''
-                if (annotationMatch) displayText = displayText.replace(/<[^>]+>/, '').trim()
-                textEl.setText(displayText)
-                if (annotation) textEl.createDiv({ cls: 'lyrics-panel-annotation', text: annotation })
+                textEl.setText(line.text)
+                if (line.annotation) textEl.createDiv({ cls: 'lyrics-panel-annotation', text: line.annotation })
             }
 
             lineEl.addEventListener('click', () => {

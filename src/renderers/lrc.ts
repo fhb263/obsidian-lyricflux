@@ -61,22 +61,42 @@ export default class LrcRenderer extends AbstractLyricsRenderer {
                         cur.line.text = text
                     }
 
-                    // Split: CJK/Hangul/Arabic/Devanagari/Thai/Tibetan individually,
-                    // Latin/Cyrillic/Armenian/Georgian words, spaces preserved
-                    // Japanese kana merged with alphanumerics (not split individually)
-                    const words = text.match(/[\u0600-\u06ff\u0750-\u077f\u08a0-\u08ff\ufe70-\ufeff\u0900-\u097f\u0e00-\u0e7f\u0f00-\u0fff\u4e00-\u9fff\u3400-\u4dbf\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af\u3130-\u318f]|[a-zA-Z0-9\u0400-\u04ff\u0530-\u058f\u10a0-\u10ff]+|\s+/g)
-                    if (!words || words.length === 0) continue
+                    // Check for precise word timestamps: {seconds}word pattern
+                    // e.g. {0.3}你{0.6}好{1.0}世{1.5}界
+                    const preciseWordRegex = /\{(\d+(?:\.\d+)?)\}([^{<]+)/g
+                    const preciseWords: { text: string; timestamp: number }[] = []
+                    let match: RegExpExecArray | null
+                    while ((match = preciseWordRegex.exec(text)) !== null) {
+                        const relativeSec = parseFloat(match[1])
+                        const wordText = match[2]
+                        preciseWords.push({
+                            text: wordText,
+                            timestamp: (cur.line.timestamp || 0) + relativeSec * 1000,
+                        })
+                    }
 
-                    const start = cur.line.timestamp || 0
-                    const end = (i + 1 < parsed.length)
-                        ? (parsed[i + 1].line.timestamp || start + 3000)
-                        : start + 3000
-                    const perWord = (end - start) / words.length
+                    if (preciseWords.length > 0) {
+                        // Strip {seconds} markers from display text, keep only word text
+                        cur.line.text = preciseWords.map(w => w.text).join('')
+                        cur.line.words = preciseWords
+                    } else {
+                        // Fallback: auto-distribute timestamps across words
+                        // Split: CJK/Hangul/Arabic/Devanagari/Thai/Tibetan individually,
+                        // Latin/Cyrillic/Armenian/Georgian words, spaces preserved
+                        const words = text.match(/[\u0600-\u06ff\u0750-\u077f\u08a0-\u08ff\ufe70-\ufeff\u0900-\u097f\u0e00-\u0e7f\u0f00-\u0fff\u4e00-\u9fff\u3400-\u4dbf\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af\u3130-\u318f]|[a-zA-Z0-9\u0400-\u04ff\u0530-\u058f\u10a0-\u10ff]+|\s+/g)
+                        if (!words || words.length === 0) continue
 
-                    cur.line.words = words.map((w, j) => ({
-                        text: w,
-                        timestamp: start + j * perWord,
-                    }))
+                        const start = cur.line.timestamp || 0
+                        const end = (i + 1 < parsed.length)
+                            ? (parsed[i + 1].line.timestamp || start + 3000)
+                            : start + 3000
+                        const perWord = (end - start) / words.length
+
+                        cur.line.words = words.map((w, j) => ({
+                            text: w,
+                            timestamp: start + j * perWord,
+                        }))
+                    }
                 }
             }
 
@@ -127,6 +147,27 @@ export default class LrcRenderer extends AbstractLyricsRenderer {
         for (const parts of this.chunk(lines, 7)) {
             const line = this.parseLrc(parts)
             if (line.text) {
+                // Extract precise word timestamps from {seconds} markers
+                const preciseWordRegex = /\{(\d+(?:\.\d+)?)\}([^{<]+)/g
+                const preciseWords: { text: string; timestamp: number }[] = []
+                let match: RegExpExecArray | null
+                while ((match = preciseWordRegex.exec(line.text)) !== null) {
+                    const relativeSec = parseFloat(match[1])
+                    preciseWords.push({
+                        text: match[2],
+                        timestamp: (line.timestamp || 0) + relativeSec * 1000,
+                    })
+                }
+                if (preciseWords.length > 0) {
+                    line.text = preciseWords.map(w => w.text).join('')
+                    line.words = preciseWords
+                }
+                // Extract annotation <...>
+                const annotationMatch = line.text.match(/<([^>]+)>/)
+                if (annotationMatch) {
+                    line.annotation = annotationMatch[1]
+                    line.text = line.text.replace(/<[^>]+>/, '').trim()
+                }
                 results.push(line)
             }
         }

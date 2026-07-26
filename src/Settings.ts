@@ -1,4 +1,4 @@
-import { PluginSettingTab, Setting, type App } from 'obsidian'
+import { PluginSettingTab, Setting, type App, Notice } from 'obsidian'
 import LyrcisPlugin from 'main'
 
 export interface Settings {
@@ -37,7 +37,7 @@ export default class LyricsSettings extends PluginSettingTab {
 
         new Setting(containerEl)
             .setName('自动滚动')
-            .setDesc('播放时 LRC 笔记页自动跟随当前歌词行滚动（侧边栏始终自动滚动，不受此项控制）')
+            .setDesc('默认关闭，启用后 LRC 笔记页跟随当前歌词行滚动（侧边栏始终滚动，不受此项控制）')
             .addToggle((toggle) => {
                 toggle.setValue(this.settings.autoScroll)
                 toggle.onChange((value) => {
@@ -47,7 +47,7 @@ export default class LyricsSettings extends PluginSettingTab {
 
         new Setting(containerEl)
             .setName('逐句模式')
-            .setDesc('启用后每句结束自动暂停（适合跟读/学习）')
+            .setDesc('默认关闭，启用后每句结束自动暂停（适合跟读/学习）')
             .addToggle((toggle) => {
                 toggle.setValue(this.settings.sentenceMode)
                 toggle.onChange((value) => {
@@ -57,7 +57,7 @@ export default class LyricsSettings extends PluginSettingTab {
 
         new Setting(containerEl)
             .setName('逐字高亮')
-            .setDesc('开启为卡拉OK级逐字高亮，关闭则为逐行高亮。支持中/日/韩/英/俄/阿拉伯/印地/泰/藏等多语言')
+            .setDesc('默认关闭，启用后显示逐字高亮效果（支持 {秒数} 逐字时间标记，如 {0.3}你{0.6}好）')
             .addToggle((toggle) => {
                 toggle.setValue(this.settings.karaoke)
                 toggle.onChange((value) => {
@@ -67,7 +67,25 @@ export default class LyricsSettings extends PluginSettingTab {
 
         const folderSetting = new Setting(containerEl)
             .setName('LRC笔记文件夹')
-            .setDesc('设定 LRC 歌词文件的存储目录（支持相对路径）')
+            .setDesc('设置 LRC 笔记的文件夹路径（在侧边栏显示歌单列表）')
+
+        // Reload button
+        folderSetting.addButton((btn) => {
+            btn.setClass('lyrics-reload-btn')
+            btn.setIcon('refresh-cw')
+                .setTooltip('刷新歌单列表')
+                .onClick(async () => {
+                    btn.setDisabled(true)
+                    btn.setIcon('loader')
+                    await this.plugin.scanLyricSongs()
+                    btn.setIcon('check')
+                    setTimeout(() => {
+                        btn.setIcon('refresh-cw')
+                        btn.setDisabled(false)
+                    }, 1000)
+                    new Notice(`歌单已刷新，共 ${this.plugin.getSongList().length} 首歌曲`)
+                })
+        })
 
         // Text input
         const inputEl = folderSetting.controlEl.createDiv({ cls: 'lyrics-folder-input-wrap' })
@@ -130,34 +148,59 @@ export default class LyricsSettings extends PluginSettingTab {
             suggestionsEl.style.display = 'block'
         }
 
+        let activeIndex = -1
+
         const renderSuggestions = (folders: string[]) => {
             suggestionsEl.empty()
-            folders.forEach((folder) => {
+            activeIndex = -1
+
+            folders.forEach((folder, index) => {
                 const item = suggestionsEl.createDiv({ cls: 'lyrics-folder-suggestion-item' })
-                // Highlight matching part
-                const query = textInput.value.toLowerCase()
-                if (query) {
-                    const idx = folder.toLowerCase().indexOf(query)
-                    if (idx >= 0) {
-                        const before = folder.slice(0, idx)
-                        const match = folder.slice(idx, idx + query.length)
-                        const after = folder.slice(idx + query.length)
-                        item.createSpan({ text: before })
-                        item.createSpan({ cls: 'lyrics-folder-suggestion-highlight', text: match })
-                        item.createSpan({ text: after })
-                    } else {
-                        item.setText(folder)
-                    }
-                } else {
-                    item.setText(folder)
-                }
+                item.setText(folder)
 
                 item.addEventListener('click', () => {
                     textInput.value = folder
                     this.updateSettings({ lyricsFolder: folder })
+                    this.plugin.scanLyricSongs()
                     suggestionsEl.style.display = 'none'
                 })
+
+                item.addEventListener('mouseenter', () => {
+                    activeIndex = index
+                    updateActive()
+                })
             })
+
+            const updateActive = () => {
+                suggestionsEl.querySelectorAll('.lyrics-folder-suggestion-item').forEach((el, i) => {
+                    el.classList.toggle('lyrics-folder-suggestion-active', i === activeIndex)
+                })
+            }
+
+            textInput.onkeydown = (e: KeyboardEvent) => {
+                const items = suggestionsEl.querySelectorAll('.lyrics-folder-suggestion-item')
+                if (!items.length) return
+                if (e.key === 'ArrowDown') {
+                    e.preventDefault()
+                    activeIndex = Math.min(activeIndex + 1, items.length - 1)
+                    updateActive()
+                    items[activeIndex]?.scrollIntoView({ block: 'nearest' })
+                } else if (e.key === 'ArrowUp') {
+                    e.preventDefault()
+                    activeIndex = Math.max(activeIndex - 1, 0)
+                    updateActive()
+                    items[activeIndex]?.scrollIntoView({ block: 'nearest' })
+                } else if (e.key === 'Enter' && activeIndex >= 0) {
+                    e.preventDefault()
+                    textInput.value = folders[activeIndex]
+                    this.updateSettings({ lyricsFolder: folders[activeIndex] })
+                    this.plugin.scanLyricSongs()
+                    suggestionsEl.style.display = 'none'
+                } else if (e.key === 'Escape') {
+                    suggestionsEl.style.display = 'none'
+                    textInput.blur()
+                }
+            }
         }
 
         // Input events
@@ -180,6 +223,7 @@ export default class LyricsSettings extends PluginSettingTab {
         // Also update settings on direct input (without selecting from dropdown)
         textInput.addEventListener('change', () => {
             this.updateSettings({ lyricsFolder: textInput.value })
+            this.plugin.scanLyricSongs()
         })
     }
 
