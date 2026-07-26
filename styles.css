@@ -561,6 +561,17 @@ If your plugin does not need CSS, delete this file.
     display: none !important;
 }
 
+/* === Reload button hover === */
+
+.lyrics-reload-btn svg {
+    transition: transform 0.3s ease;
+}
+
+.lyrics-reload-btn:hover svg {
+    transform: rotate(90deg);
+    color: var(--text-accent);
+}
+
 /* === Folder suggestion dropdown === */
 
 .lyrics-folder-input-wrap {

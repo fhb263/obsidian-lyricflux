@@ -2187,6 +2187,20 @@ var LyricsSettings = class extends import_obsidian6.PluginSettingTab {
       });
     });
     const folderSetting = new import_obsidian6.Setting(containerEl).setName("LRC\u7B14\u8BB0\u6587\u4EF6\u5939").setDesc("\u8BBE\u7F6E LRC \u7B14\u8BB0\u7684\u6587\u4EF6\u5939\u8DEF\u5F84\uFF08\u5728\u4FA7\u8FB9\u680F\u663E\u793A\u6B4C\u5355\u5217\u8868\uFF09");
+    folderSetting.addButton((btn) => {
+      btn.setClass("lyrics-reload-btn");
+      btn.setIcon("refresh-cw").setTooltip("\u5237\u65B0\u6B4C\u5355\u5217\u8868").onClick(async () => {
+        btn.setDisabled(true);
+        btn.setIcon("loader");
+        await this.plugin.scanLyricSongs();
+        btn.setIcon("check");
+        setTimeout(() => {
+          btn.setIcon("refresh-cw");
+          btn.setDisabled(false);
+        }, 1e3);
+        new import_obsidian6.Notice(`\u6B4C\u5355\u5DF2\u5237\u65B0\uFF0C\u5171 ${this.plugin.getSongList().length} \u9996\u6B4C\u66F2`);
+      });
+    });
     const inputEl = folderSetting.controlEl.createDiv({ cls: "lyrics-folder-input-wrap" });
     const textInput = inputEl.createEl("input", {
       cls: "lyrics-folder-input",
@@ -2542,11 +2556,16 @@ var LyricsPlugin = class extends import_obsidian7.Plugin {
     });
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => {
       setTimeout(() => {
-        for (const renderer of this.activeRenderers.values()) {
-          if (renderer.player) {
+        const activeFile = this.app.workspace.getActiveFile();
+        if (activeFile) {
+          const renderer = this.activeRenderers.get(activeFile.path);
+          if (renderer) {
             renderer.emitState();
-            break;
+            return;
           }
+        }
+        if (this.activeRenderers.size === 0) {
+          this.updateLyricsState(null);
         }
       }, 300);
     }));
@@ -2802,11 +2821,6 @@ var LyricsView = class extends import_obsidian7.ItemView {
       const lineEl = this.lyricsEl.createDiv({ cls, attr: { "data-time": String(line.timestamp || 0) } });
       const textEl = lineEl.createSpan({ cls: "lyrics-panel-text" });
       if (state.karaoke && isCurrent && line.text.trim()) {
-        let text = line.text.trim();
-        const annotationMatch = text.match(/<([^>]+)>/);
-        const annotation = annotationMatch ? annotationMatch[1] : "";
-        if (annotationMatch)
-          text = text.replace(/<[^>]+>/, "").trim();
         if (line.words && line.words.length > 0) {
           line.words.forEach((word) => {
             textEl.createSpan({
@@ -2815,7 +2829,7 @@ var LyricsView = class extends import_obsidian7.ItemView {
             });
           });
         } else {
-          const words = text.match(/[\u0600-\u06ff\u0750-\u077f\u08a0-\u08ff\ufe70-\ufeff\u0900-\u097f\u0e00-\u0e7f\u0f00-\u0fff\u4e00-\u9fff\u3400-\u4dbf\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af\u3130-\u318f]|[a-zA-Z0-9\u0400-\u04ff\u0530-\u058f\u10a0-\u10ff]+|\s+/g);
+          const words = line.text.match(/[\u0600-\u06ff\u0750-\u077f\u08a0-\u08ff\ufe70-\ufeff\u0900-\u097f\u0e00-\u0e7f\u0f00-\u0fff\u4e00-\u9fff\u3400-\u4dbf\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af\u3130-\u318f]|[a-zA-Z0-9\u0400-\u04ff\u0530-\u058f\u10a0-\u10ff]+|\s+/g);
           if (words && words.length > 0) {
             const start = line.timestamp || 0;
             const end = index + 1 < state.lyrics.length ? state.lyrics[index + 1].timestamp || start + 3e3 : start + 3e3;
@@ -2827,20 +2841,15 @@ var LyricsView = class extends import_obsidian7.ItemView {
               });
             });
           } else {
-            textEl.setText(text);
+            textEl.setText(line.text);
           }
         }
-        if (annotation)
-          textEl.createDiv({ cls: "lyrics-panel-annotation", text: annotation });
+        if (line.annotation)
+          textEl.createDiv({ cls: "lyrics-panel-annotation", text: line.annotation });
       } else {
-        let displayText = line.text;
-        const annotationMatch = displayText.match(/<([^>]+)>/);
-        const annotation = annotationMatch ? annotationMatch[1] : "";
-        if (annotationMatch)
-          displayText = displayText.replace(/<[^>]+>/, "").trim();
-        textEl.setText(displayText);
-        if (annotation)
-          textEl.createDiv({ cls: "lyrics-panel-annotation", text: annotation });
+        textEl.setText(line.text);
+        if (line.annotation)
+          textEl.createDiv({ cls: "lyrics-panel-annotation", text: line.annotation });
       }
       lineEl.addEventListener("click", () => {
         if (line.timestamp !== void 0)

@@ -8,7 +8,7 @@
 
 LyricFlux 是基于 [obsidian-lyrics](https://github.com/eatgrass/obsidian-lyric) 的修改版本，在原版基础上新增：
 
-- **精确逐字高亮（卡拉OK）** — 播放时按字变色 + 光晕，支持 `{秒数}` 精确逐字时间标记
+- **精确逐字高亮** — 播放时按字变色 + 光晕，支持 `{秒数}` 精确逐字时间标记
 - **双语注释语法** — `<注释>` 格式，注释不参与逐字高亮，显示为第二语言
 - **侧边栏歌词面板** — 右侧栏实时显示歌词，当前行放大高亮，非当前行缩小淡化
 - **侧边栏逐字高亮** — 侧边栏当前行同步逐字变色
@@ -38,7 +38,7 @@ LyricFlux 是基于 [obsidian-lyrics](https://github.com/eatgrass/obsidian-lyric
    - `manifest.json`
 2. 将这三个文件复制到你的 Vault 目录下：
    ```
-   <你的Vault>/.obsidian/plugins/lyricflux/
+   <你的Vault>/.obsidian/plugins/obsidian-lyricflux/
    ```
 3. 重启 Obsidian → 设置 → 第三方插件 → 启用 **LyricFlux**
 
@@ -94,7 +94,7 @@ lyrics C:\Users\用户名\Downloads\lyrics\海阔天空.lrc
 - **LRC** — `[hh:mm:ss.xx] 歌词内容`
 - **SRT** — SubRip 字幕格式
 
-### 逐字高亮（卡拉OK效果）
+### 逐字高亮
 
 在 设置 → LyricFlux → 逐字高亮 中开启。开启后：
 
@@ -256,4 +256,4 @@ source [[music.mp3]]
 
 ## 许可证
 
-基于 [MIT License](LICENSE)。
+基于 [MIT License](LICENSE)
