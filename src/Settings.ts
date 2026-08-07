@@ -57,7 +57,7 @@ export default class LyricsSettings extends PluginSettingTab {
 
         new Setting(containerEl)
             .setName('逐字高亮')
-            .setDesc('默认关闭，启用后显示逐字高亮效果（支持 {秒数} 逐字时间标记，如 {0.3}你{0.6}好）')
+            .setDesc('默认关闭，启用后显示逐字高亮效果（支持主流 <mm:ss.xx> 逐字时间标记，如 <00:12.167>沧<00:13.000>海，兼容旧 {秒数} 语法）')
             .addToggle((toggle) => {
                 toggle.setValue(this.settings.karaoke)
                 toggle.onChange((value) => {

@@ -1377,6 +1377,75 @@ var _LrcRenderer = class extends AbstractLyricsRenderer {
   constructor(app) {
     super(app);
   }
+  /** 把 `mm:ss.xx`（或 `hh:mm:ss.xx`）解析为秒；无效返回 NaN */
+  static parseClock(t) {
+    const parts = t.split(":");
+    if (parts.length === 2)
+      return parseInt(parts[0], 10) * 60 + parseFloat(parts[1]);
+    if (parts.length === 3)
+      return parseInt(parts[0], 10) * 3600 + parseInt(parts[1], 10) * 60 + parseFloat(parts[2]);
+    return NaN;
+  }
+  /**
+   * 提取逐字时间标记，返回 { 显示文本, 逐字数组 }；无任何标记返回 null。
+   * 优先解析主流增强 LRC 的 `<mm:ss.xx>` 绝对时间，兼容旧 `{相对秒}` 语法。
+   */
+  static extractPreciseWords(text, lineStartMs) {
+    if (/<\d{1,2}:\d{2}(\.\d+)?>/.test(text)) {
+      const re = /<(\d{1,2}:\d{2}(?:\.\d+)?)>([^<]*)/g;
+      const words = [];
+      let display = "";
+      let m;
+      while ((m = re.exec(text)) !== null) {
+        const sec = _LrcRenderer.parseClock(m[1]);
+        if (!isFinite(sec))
+          continue;
+        display += m[2];
+        words.push({ text: m[2], timestamp: Math.round(sec * 1e3) });
+      }
+      if (words.length > 0)
+        return { text: display, words };
+    }
+    const legacyRe = /\{(\d+(?:\.\d+)?)\}([^{<]+)/g;
+    const words2 = [];
+    let display2 = "";
+    let m2;
+    while ((m2 = legacyRe.exec(text)) !== null) {
+      const relSec = parseFloat(m2[1]);
+      if (!isFinite(relSec))
+        continue;
+      display2 += m2[2];
+      words2.push({ text: m2[2], timestamp: lineStartMs + relSec * 1e3 });
+    }
+    if (words2.length > 0)
+      return { text: display2, words: words2 };
+    return null;
+  }
+  /**
+   * 提取双语注释：优先用竖线 `原文 | 译文` 分隔；同时兼容旧语法 `<译文>`。
+   * 竖线两边都非空才视为双语，避免误判歌词中孤立的 `|`。
+   * `<...>` 内容若形如时间戳（如 `<00:12.167>`），视为逐字标记而非注释。
+   */
+  static extractAnnotation(text) {
+    const pipe = text.indexOf("|");
+    if (pipe >= 0) {
+      const before = text.slice(0, pipe).trim();
+      const after = text.slice(pipe + 1).trim();
+      if (before && after) {
+        return { text: before, annotation: after };
+      }
+    }
+    const re = /<([^>]+)>/g;
+    let m;
+    while ((m = re.exec(text)) !== null) {
+      const inner = m[1].trim();
+      if (/^\d{1,2}:\d{2}/.test(inner))
+        continue;
+      const stripped = text.slice(0, m.index) + text.slice(m.index + m[0].length);
+      return { text: stripped.trim(), annotation: inner };
+    }
+    return { text };
+  }
   match(content) {
     const s = content.split(_LrcRenderer.LRC_SPLITTER);
     s.shift();
@@ -1411,26 +1480,16 @@ var _LrcRenderer = class extends AbstractLyricsRenderer {
           let text = cur.line.text.trim();
           if (!text)
             continue;
-          const annotationMatch = text.match(/<([^>]+)>/);
-          if (annotationMatch) {
-            cur.line.annotation = annotationMatch[1];
-            text = text.replace(/<[^>]+>/, "").trim();
-            cur.line.text = text;
+          const extracted = _LrcRenderer.extractAnnotation(text);
+          if (extracted.annotation) {
+            cur.line.annotation = extracted.annotation;
+            cur.line.text = extracted.text;
+            text = extracted.text;
           }
-          const preciseWordRegex = /\{(\d+(?:\.\d+)?)\}([^{<]+)/g;
-          const preciseWords = [];
-          let match;
-          while ((match = preciseWordRegex.exec(text)) !== null) {
-            const relativeSec = parseFloat(match[1]);
-            const wordText = match[2];
-            preciseWords.push({
-              text: wordText,
-              timestamp: (cur.line.timestamp || 0) + relativeSec * 1e3
-            });
-          }
-          if (preciseWords.length > 0) {
-            cur.line.text = preciseWords.map((w) => w.text).join("");
-            cur.line.words = preciseWords;
+          const precise = _LrcRenderer.extractPreciseWords(text, cur.line.timestamp || 0);
+          if (precise && precise.words.length > 0) {
+            cur.line.text = precise.text;
+            cur.line.words = precise.words;
           } else {
             const words = text.match(/[\u0600-\u06ff\u0750-\u077f\u08a0-\u08ff\ufe70-\ufeff\u0900-\u097f\u0e00-\u0e7f\u0f00-\u0fff\u4e00-\u9fff\u3400-\u4dbf\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af\u3130-\u318f]|[a-zA-Z0-9\u0400-\u04ff\u0530-\u058f\u10a0-\u10ff]+|\s+/g);
             if (!words || words.length === 0)
@@ -1484,24 +1543,15 @@ var _LrcRenderer = class extends AbstractLyricsRenderer {
     for (const parts of this.chunk(lines, 7)) {
       const line = this.parseLrc(parts);
       if (line.text) {
-        const preciseWordRegex = /\{(\d+(?:\.\d+)?)\}([^{<]+)/g;
-        const preciseWords = [];
-        let match;
-        while ((match = preciseWordRegex.exec(line.text)) !== null) {
-          const relativeSec = parseFloat(match[1]);
-          preciseWords.push({
-            text: match[2],
-            timestamp: (line.timestamp || 0) + relativeSec * 1e3
-          });
+        const extracted = _LrcRenderer.extractAnnotation(line.text);
+        if (extracted.annotation) {
+          line.annotation = extracted.annotation;
+          line.text = extracted.text;
         }
-        if (preciseWords.length > 0) {
-          line.text = preciseWords.map((w) => w.text).join("");
-          line.words = preciseWords;
-        }
-        const annotationMatch = line.text.match(/<([^>]+)>/);
-        if (annotationMatch) {
-          line.annotation = annotationMatch[1];
-          line.text = line.text.replace(/<[^>]+>/, "").trim();
+        const precise = _LrcRenderer.extractPreciseWords(line.text, line.timestamp || 0);
+        if (precise && precise.words.length > 0) {
+          line.text = precise.text;
+          line.words = precise.words;
         }
         results.push(line);
       }
@@ -1651,6 +1701,157 @@ var LyricsRenderer = class extends AbstractLyricsRenderer {
   }
 };
 
+// src/renderers/id3.ts
+function readSyncsafe(bytes, offset, count) {
+  let value = 0;
+  for (let i = 0; i < count; i++) {
+    value = value << 7 | bytes[offset + i] & 127;
+  }
+  return value;
+}
+function readBE(bytes, offset, count) {
+  let value = 0;
+  for (let i = 0; i < count; i++) {
+    value = value << 8 | bytes[offset + i] & 255;
+  }
+  return value;
+}
+function deunsync(data) {
+  const out = [];
+  for (let i = 0; i < data.length; i++) {
+    out.push(data[i]);
+    if (data[i] === 255 && i + 1 < data.length && data[i + 1] === 0) {
+      i++;
+    }
+  }
+  return new Uint8Array(out);
+}
+function isTerminator(data, pos, len) {
+  for (let i = 0; i < len; i++) {
+    if (data[pos + i] !== 0)
+      return false;
+  }
+  return true;
+}
+function decodeText(bytes, encoding) {
+  try {
+    if (encoding === 3)
+      return new TextDecoder("utf-8").decode(bytes);
+    if (encoding === 1)
+      return new TextDecoder("utf-16").decode(bytes);
+    if (encoding === 2)
+      return new TextDecoder("utf-16be").decode(bytes);
+    try {
+      return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    } catch (e) {
+      try {
+        return new TextDecoder("gbk").decode(bytes);
+      } catch (e2) {
+        return new TextDecoder("latin1").decode(bytes);
+      }
+    }
+  } catch (e) {
+    return "";
+  }
+}
+function parseLyricsFrame(data) {
+  if (data.length < 4)
+    return null;
+  const encoding = data[0];
+  const termLen = encoding === 1 || encoding === 2 ? 2 : 1;
+  let pos = 4;
+  while (pos + termLen <= data.length) {
+    if (isTerminator(data, pos, termLen))
+      break;
+    pos++;
+  }
+  pos += termLen;
+  if (pos >= data.length)
+    return null;
+  const text = decodeText(data.subarray(pos), encoding).trim();
+  return text ? text : null;
+}
+function extractEmbeddedLyrics(input) {
+  const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
+  if (bytes.length < 10)
+    return [];
+  if (bytes[0] !== 73 || bytes[1] !== 68 || bytes[2] !== 51)
+    return [];
+  const major = bytes[3];
+  const flags = bytes[5];
+  const tagSize = readSyncsafe(bytes, 6, 4);
+  let tagData = bytes.slice(10, Math.min(10 + tagSize, bytes.length));
+  if ((flags & 128) !== 0)
+    tagData = deunsync(tagData);
+  const lyrics = [];
+  let offset = 0;
+  if ((flags & 64) !== 0) {
+    if (major >= 4) {
+      const extSize = readSyncsafe(tagData, offset, 4);
+      offset += 4 + extSize;
+    } else {
+      const extSize = readBE(tagData, offset, 4);
+      offset += 4 + extSize;
+    }
+  }
+  while (offset + 6 <= tagData.length) {
+    let frameId = "";
+    for (let i = 0; i < 4 && offset + i < tagData.length; i++) {
+      frameId += String.fromCharCode(tagData[offset + i]);
+    }
+    let frameSize = 0;
+    let frameHeaderSize = 10;
+    if (major === 2) {
+      frameId = frameId.substring(0, 3);
+      frameSize = readBE(tagData, offset + 3, 3);
+      frameHeaderSize = 6;
+    } else if (major >= 3) {
+      frameSize = major === 3 ? readBE(tagData, offset + 4, 4) : readSyncsafe(tagData, offset + 4, 4);
+    } else {
+      break;
+    }
+    const contentStart = offset + frameHeaderSize;
+    const contentEnd = contentStart + frameSize;
+    if (contentEnd > tagData.length)
+      break;
+    let frameData = tagData.slice(contentStart, contentEnd);
+    if (major === 4) {
+      const fmt = tagData[offset + 9];
+      if (fmt & 32) {
+        offset = contentEnd;
+        continue;
+      }
+      if (fmt & 16) {
+        offset = contentEnd;
+        continue;
+      }
+      if (fmt & 64)
+        frameData = frameData.subarray(1);
+      if (fmt & 4)
+        frameData = frameData.subarray(4);
+      if (fmt & 8)
+        frameData = deunsync(frameData);
+    }
+    const isLyric = major === 2 ? frameId === "ULT" : frameId === "USLT";
+    if (isLyric) {
+      const text = parseLyricsFrame(frameData);
+      if (text)
+        lyrics.push(text);
+    }
+    offset = contentEnd;
+  }
+  return lyrics;
+}
+function pickEmbeddedLyrics(frames) {
+  if (frames.length === 0)
+    return "";
+  for (const text of frames) {
+    if (/\[\d{1,2}:\d{2}/.test(text))
+      return text;
+  }
+  return frames[0];
+}
+
 // src/LyricsMarkdownRender.ts
 var _LyricsMarkdownRender = class extends import_obsidian5.MarkdownRenderChild {
   constructor(plugin, source, container, ctx) {
@@ -1694,29 +1895,42 @@ var _LyricsMarkdownRender = class extends import_obsidian5.MarkdownRenderChild {
       }
       this.emitState();
       if (!this.pauseHl) {
+        let hlStart = hl;
+        let hlEnd = hl;
+        if (hl >= 0) {
+          const t = lyrics.item(hl).dataset.time;
+          while (hlStart > 0 && lyrics.item(hlStart - 1).dataset.time === t)
+            hlStart--;
+          while (hlEnd + 1 < lyrics.length && lyrics.item(hlEnd + 1).dataset.time === t)
+            hlEnd++;
+        }
         lyrics.forEach((el, index) => {
           el.removeClass("lyrics-highlighted");
           el.removeClass("lyrics-line-past");
           el.removeClass("lyrics-line-future");
-          if (index < hl) {
+          if (index < hlStart) {
             el.addClass("lyrics-line-past");
-          } else if (index > hl) {
+          } else if (index > hlEnd) {
             el.addClass("lyrics-line-future");
           }
         });
         if (hl >= 0) {
-          const hlel = lyrics.item(hl);
-          if (hlel && !hlel.hasClass("lyrics-highlighted")) {
-            hlel.addClass("lyrics-highlighted");
-            if (this.autoScroll) {
-              hlel.scrollIntoView({
-                behavior: "smooth",
-                block: "center"
-              });
+          for (let i = hlStart; i <= hlEnd; i++) {
+            const hlel = lyrics.item(i);
+            if (hlel && !hlel.hasClass("lyrics-highlighted")) {
+              hlel.addClass("lyrics-highlighted");
             }
           }
+          if (this.autoScroll) {
+            lyrics.item(hlStart).scrollIntoView({
+              behavior: "smooth",
+              block: "center"
+            });
+          }
           if (this.karaoke) {
-            this.highlightWords(hlel, sec);
+            for (let i = hlStart; i <= hlEnd; i++) {
+              this.highlightWords(lyrics.item(i), sec);
+            }
           }
         }
       }
@@ -1895,6 +2109,35 @@ var _LyricsMarkdownRender = class extends import_obsidian5.MarkdownRenderChild {
     const mime = mimeMap[ext] || "audio/mpeg";
     return `data:${mime};base64,${buf.toString("base64")}`;
   }
+  /** Read the source audio file as binary, resolving its path the same way the player does. */
+  async readAudioBinary() {
+    var _a;
+    if (!this.audioPath)
+      return null;
+    const internalLink = this.audioPath.match(_LyricsMarkdownRender.INTERNAL_LINK_REGEX);
+    if ((_a = internalLink == null ? void 0 : internalLink.groups) == null ? void 0 : _a.link) {
+      const file = this.plugin.app.metadataCache.getFirstLinkpathDest(internalLink.groups.link, this.path);
+      if (file instanceof import_obsidian5.TFile) {
+        try {
+          return await this.app.vault.readBinary(file);
+        } catch (e) {
+          return null;
+        }
+      }
+    } else if (_LyricsMarkdownRender.isWinAbsolute(this.audioPath)) {
+      return _LyricsMarkdownRender.readLocalBinary(this.audioPath);
+    } else {
+      const file = this.app.vault.getAbstractFileByPath(this.audioPath);
+      if (file instanceof import_obsidian5.TFile) {
+        try {
+          return await this.app.vault.readBinary(file);
+        } catch (e) {
+          return null;
+        }
+      }
+    }
+    return null;
+  }
   highlightWords(lineEl, sec) {
     const words = lineEl.querySelectorAll(".lyrics-word");
     if (words.length === 0)
@@ -1955,6 +2198,20 @@ var _LyricsMarkdownRender = class extends import_obsidian5.MarkdownRenderChild {
         }
       }
     }
+    if (this.effectiveLyricsContent) {
+      this.lyricsRenderer.render(
+        this.effectiveLyricsContent,
+        wrapper,
+        this.path,
+        this,
+        this.karaoke
+      );
+      if (this.player) {
+        const sec = this.player.getTimeStamp();
+        this.updateTimestamp(sec, true);
+      }
+      return;
+    }
     if (this.source.length > 0) {
       let eol = this.source.indexOf("\n");
       if (eol >= 0 && this.source.length > eol) {
@@ -2006,8 +2263,19 @@ var _LyricsMarkdownRender = class extends import_obsidian5.MarkdownRenderChild {
           }
         }
         directiveEnd = i + 1;
+      } else if (line.match(_LyricsMarkdownRender.EMBEDDED_LYRICS_REGEX)) {
+        directiveEnd = i + 1;
       } else {
         break;
+      }
+    }
+    const inlineLyrics = lines.slice(directiveEnd).join("\n").trim();
+    if (!lyricsContent && !inlineLyrics && this.audioPath) {
+      const audioBuf = await this.readAudioBinary();
+      if (audioBuf) {
+        const picked = pickEmbeddedLyrics(extractEmbeddedLyrics(audioBuf));
+        if (picked)
+          lyricsContent = picked;
       }
     }
     let fragment = new DocumentFragment();
@@ -2144,6 +2412,7 @@ var _LyricsMarkdownRender = class extends import_obsidian5.MarkdownRenderChild {
 var LyricsMarkdownRender = _LyricsMarkdownRender;
 LyricsMarkdownRender.AUDIO_FILE_REGEX = /^source (?<audio>.*)/i;
 LyricsMarkdownRender.LYRICS_FILE_REGEX = /^lyrics (?<links>.*)/i;
+LyricsMarkdownRender.EMBEDDED_LYRICS_REGEX = /^embedded-lyrics\s*$/i;
 LyricsMarkdownRender.INTERNAL_LINK_REGEX = /\[\[(?<link>.*)\]\]/;
 
 // src/Settings.ts
@@ -2180,7 +2449,7 @@ var LyricsSettings = class extends import_obsidian6.PluginSettingTab {
         this.updateSettings({ sentenceMode: value });
       });
     });
-    new import_obsidian6.Setting(containerEl).setName("\u9010\u5B57\u9AD8\u4EAE").setDesc("\u9ED8\u8BA4\u5173\u95ED\uFF0C\u542F\u7528\u540E\u663E\u793A\u9010\u5B57\u9AD8\u4EAE\u6548\u679C\uFF08\u652F\u6301 {\u79D2\u6570} \u9010\u5B57\u65F6\u95F4\u6807\u8BB0\uFF0C\u5982 {0.3}\u4F60{0.6}\u597D\uFF09").addToggle((toggle) => {
+    new import_obsidian6.Setting(containerEl).setName("\u9010\u5B57\u9AD8\u4EAE").setDesc("\u9ED8\u8BA4\u5173\u95ED\uFF0C\u542F\u7528\u540E\u663E\u793A\u9010\u5B57\u9AD8\u4EAE\u6548\u679C\uFF08\u652F\u6301\u4E3B\u6D41 <mm:ss.xx> \u9010\u5B57\u65F6\u95F4\u6807\u8BB0\uFF0C\u5982 <00:12.167>\u6CA7<00:13.000>\u6D77\uFF0C\u517C\u5BB9\u65E7 {\u79D2\u6570} \u8BED\u6CD5\uFF09").addToggle((toggle) => {
       toggle.setValue(this.settings.karaoke);
       toggle.onChange((value) => {
         this.updateSettings({ karaoke: value });
@@ -2593,6 +2862,7 @@ var LyricsView = class extends import_obsidian7.ItemView {
     this.statusBarMode = null;
     this.statusBarSpeed = null;
     this.statusBarVolume = null;
+    this.statusBarLocate = null;
     this.songListPopup = null;
     this.songListSearchEl = null;
     this.statusBarVolumeIcon = null;
@@ -2672,6 +2942,10 @@ var LyricsView = class extends import_obsidian7.ItemView {
       this.plugin.cyclePlaybackRate();
       this.renderSpeedLabel();
     });
+    this.statusBarLocate = this.statusBar.createSpan({ cls: "lyrics-statusbar-locate-btn" });
+    this.statusBarLocate.setAttribute("title", "\u5B9A\u4F4D\u5230\u6B4C\u8BCD\u7B14\u8BB0\u6807\u7B7E\u9875");
+    (0, import_obsidian7.setIcon)(this.statusBarLocate, "locate-fixed");
+    this.statusBarLocate.addEventListener("click", () => this.locateLyricsNote());
     const info = this.statusBar.createDiv({ cls: "lyrics-statusbar-info" });
     this.statusBarTitle = info.createSpan({ cls: "lyrics-statusbar-song", text: "LyricFlux" });
     this.statusBarTitle.addEventListener("click", (e) => {
@@ -2754,6 +3028,7 @@ var LyricsView = class extends import_obsidian7.ItemView {
     }
   }
   renderStatusBar(state) {
+    var _a, _b;
     if (!this.statusBarTitle)
       return;
     this.renderModeIcon();
@@ -2764,8 +3039,10 @@ var LyricsView = class extends import_obsidian7.ItemView {
       if (this.statusBarTime)
         this.statusBarTime.setText("");
       (0, import_obsidian7.setIcon)(this.statusBarPlay, "play");
+      (_a = this.statusBarLocate) == null ? void 0 : _a.addClass("lyrics-statusbar-locate-hidden");
       return;
     }
+    (_b = this.statusBarLocate) == null ? void 0 : _b.removeClass("lyrics-statusbar-locate-hidden");
     const title = state.title || "\u672A\u77E5\u6B4C\u66F2";
     const actor = state.actor || "\u672A\u77E5\u827A\u672F\u5BB6";
     this.statusBarTitle.setText(`${title} - ${actor}`);
@@ -2785,6 +3062,23 @@ var LyricsView = class extends import_obsidian7.ItemView {
     const m = Math.floor(sec / 60);
     const s = Math.floor(sec % 60);
     return `${m < 10 ? "0" + m : m}:${s < 10 ? "0" + s : s}`;
+  }
+  /** 定位到歌词笔记标签页：若已打开则切换到该标签（排序不变），否则新开标签页打开 */
+  locateLyricsNote() {
+    const state = this.plugin.getLyricsState();
+    const path = state == null ? void 0 : state.filePath;
+    if (!path)
+      return;
+    const leaves = this.plugin.app.workspace.getLeavesOfType("markdown");
+    const existing = leaves.find((leaf) => {
+      var _a;
+      return ((_a = leaf.getViewState().state) == null ? void 0 : _a.file) === path;
+    });
+    if (existing) {
+      this.plugin.app.workspace.setActiveLeaf(existing);
+      return;
+    }
+    this.plugin.app.workspace.openLinkText(path, "", true);
   }
   // --- Lyrics rendering ---
   renderEmpty() {
@@ -2808,9 +3102,12 @@ var LyricsView = class extends import_obsidian7.ItemView {
     this.updatePlayPauseIcon(state.isPlaying);
     (_a = this.playPauseBtn) == null ? void 0 : _a.removeClass("lyrics-panel-play-hidden");
     const timeMs = Math.round(state.currentTime * 1e3);
+    const curLine = state.lyrics[state.currentIndex];
+    const curTs = curLine == null ? void 0 : curLine.timestamp;
     state.lyrics.forEach((line, index) => {
-      const isCurrent = index === state.currentIndex;
-      const isPast = index < state.currentIndex;
+      var _a2;
+      const isCurrent = curTs !== void 0 ? line.timestamp === curTs : index === state.currentIndex;
+      const isPast = curTs !== void 0 ? ((_a2 = line.timestamp) != null ? _a2 : -1) < curTs : index < state.currentIndex;
       let cls = "lyrics-panel-line";
       if (isCurrent)
         cls += " lyrics-panel-highlighted";

@@ -12,6 +12,78 @@ export default class LrcRenderer extends AbstractLyricsRenderer {
         super(app)
     }
 
+    /** 把 `mm:ss.xx`（或 `hh:mm:ss.xx`）解析为秒；无效返回 NaN */
+    private static parseClock(t: string): number {
+        const parts = t.split(':')
+        if (parts.length === 2) return parseInt(parts[0], 10) * 60 + parseFloat(parts[1])
+        if (parts.length === 3) return parseInt(parts[0], 10) * 3600 + parseInt(parts[1], 10) * 60 + parseFloat(parts[2])
+        return NaN
+    }
+
+    /**
+     * 提取逐字时间标记，返回 { 显示文本, 逐字数组 }；无任何标记返回 null。
+     * 优先解析主流增强 LRC 的 `<mm:ss.xx>` 绝对时间，兼容旧 `{相对秒}` 语法。
+     */
+    private static extractPreciseWords(
+        text: string,
+        lineStartMs: number,
+    ): { text: string; words: { text: string; timestamp: number }[] } | null {
+        // 1) 主流增强 LRC：<mm:ss.xx>词  （绝对时间）
+        if (/<\d{1,2}:\d{2}(\.\d+)?>/.test(text)) {
+            const re = /<(\d{1,2}:\d{2}(?:\.\d+)?)>([^<]*)/g
+            const words: { text: string; timestamp: number }[] = []
+            let display = ''
+            let m: RegExpExecArray | null
+            while ((m = re.exec(text)) !== null) {
+                const sec = LrcRenderer.parseClock(m[1])
+                if (!isFinite(sec)) continue
+                display += m[2]
+                words.push({ text: m[2], timestamp: Math.round(sec * 1000) })
+            }
+            if (words.length > 0) return { text: display, words }
+        }
+        // 2) 兼容旧语法：{相对秒}词
+        const legacyRe = /\{(\d+(?:\.\d+)?)\}([^{<]+)/g
+        const words2: { text: string; timestamp: number }[] = []
+        let display2 = ''
+        let m2: RegExpExecArray | null
+        while ((m2 = legacyRe.exec(text)) !== null) {
+            const relSec = parseFloat(m2[1])
+            if (!isFinite(relSec)) continue
+            display2 += m2[2]
+            words2.push({ text: m2[2], timestamp: lineStartMs + relSec * 1000 })
+        }
+        if (words2.length > 0) return { text: display2, words: words2 }
+        return null
+    }
+
+    /**
+     * 提取双语注释：优先用竖线 `原文 | 译文` 分隔；同时兼容旧语法 `<译文>`。
+     * 竖线两边都非空才视为双语，避免误判歌词中孤立的 `|`。
+     * `<...>` 内容若形如时间戳（如 `<00:12.167>`），视为逐字标记而非注释。
+     */
+    private static extractAnnotation(text: string): { text: string; annotation?: string } {
+        const pipe = text.indexOf('|')
+        if (pipe >= 0) {
+            const before = text.slice(0, pipe).trim()
+            const after = text.slice(pipe + 1).trim()
+            if (before && after) {
+                return { text: before, annotation: after }
+            }
+        }
+        // 兼容旧语法 <...>（内容不是时间戳时才视为注释；跳过逐字时间戳 <mm:ss>）
+        const re = /<([^>]+)>/g
+        let m: RegExpExecArray | null
+        while ((m = re.exec(text)) !== null) {
+            const inner = m[1].trim()
+            if (/^\d{1,2}:\d{2}/.test(inner)) continue
+            // 只移除这一处注释，保留逐字时间戳标记
+            const stripped = text.slice(0, m.index) + text.slice(m.index + m[0].length)
+            return { text: stripped.trim(), annotation: inner }
+        }
+        return { text }
+    }
+
     public match(content: string): number {
         const s = content.split(LrcRenderer.LRC_SPLITTER)
         s.shift()
@@ -53,32 +125,20 @@ export default class LrcRenderer extends AbstractLyricsRenderer {
                     let text = cur.line.text.trim()
                     if (!text) continue
 
-                    // Extract annotation inside <...>
-                    const annotationMatch = text.match(/<([^>]+)>/)
-                    if (annotationMatch) {
-                        cur.line.annotation = annotationMatch[1]
-                        text = text.replace(/<[^>]+>/, '').trim()
-                        cur.line.text = text
+                    // Extract bilingual annotation: `原文 | 译文`（兼容旧 `<>`）
+                    const extracted = LrcRenderer.extractAnnotation(text)
+                    if (extracted.annotation) {
+                        cur.line.annotation = extracted.annotation
+                        cur.line.text = extracted.text
+                        text = extracted.text
                     }
 
-                    // Check for precise word timestamps: {seconds}word pattern
-                    // e.g. {0.3}你{0.6}好{1.0}世{1.5}界
-                    const preciseWordRegex = /\{(\d+(?:\.\d+)?)\}([^{<]+)/g
-                    const preciseWords: { text: string; timestamp: number }[] = []
-                    let match: RegExpExecArray | null
-                    while ((match = preciseWordRegex.exec(text)) !== null) {
-                        const relativeSec = parseFloat(match[1])
-                        const wordText = match[2]
-                        preciseWords.push({
-                            text: wordText,
-                            timestamp: (cur.line.timestamp || 0) + relativeSec * 1000,
-                        })
-                    }
-
-                    if (preciseWords.length > 0) {
-                        // Strip {seconds} markers from display text, keep only word text
-                        cur.line.text = preciseWords.map(w => w.text).join('')
-                        cur.line.words = preciseWords
+                    // Precise word timestamps: 主流 <mm:ss.xx>（绝对时间），兼容旧 {相对秒}
+                    const precise = LrcRenderer.extractPreciseWords(text, cur.line.timestamp || 0)
+                    if (precise && precise.words.length > 0) {
+                        // Strip markers from display text, keep only word text
+                        cur.line.text = precise.text
+                        cur.line.words = precise.words
                     } else {
                         // Fallback: auto-distribute timestamps across words
                         // Split: CJK/Hangul/Arabic/Devanagari/Thai/Tibetan individually,
@@ -147,26 +207,17 @@ export default class LrcRenderer extends AbstractLyricsRenderer {
         for (const parts of this.chunk(lines, 7)) {
             const line = this.parseLrc(parts)
             if (line.text) {
-                // Extract precise word timestamps from {seconds} markers
-                const preciseWordRegex = /\{(\d+(?:\.\d+)?)\}([^{<]+)/g
-                const preciseWords: { text: string; timestamp: number }[] = []
-                let match: RegExpExecArray | null
-                while ((match = preciseWordRegex.exec(line.text)) !== null) {
-                    const relativeSec = parseFloat(match[1])
-                    preciseWords.push({
-                        text: match[2],
-                        timestamp: (line.timestamp || 0) + relativeSec * 1000,
-                    })
+                // Extract bilingual annotation: `原文 | 译文`（兼容旧 `<>`）
+                const extracted = LrcRenderer.extractAnnotation(line.text)
+                if (extracted.annotation) {
+                    line.annotation = extracted.annotation
+                    line.text = extracted.text
                 }
-                if (preciseWords.length > 0) {
-                    line.text = preciseWords.map(w => w.text).join('')
-                    line.words = preciseWords
-                }
-                // Extract annotation <...>
-                const annotationMatch = line.text.match(/<([^>]+)>/)
-                if (annotationMatch) {
-                    line.annotation = annotationMatch[1]
-                    line.text = line.text.replace(/<[^>]+>/, '').trim()
+                // Precise word timestamps: 主流 <mm:ss.xx>（绝对时间），兼容旧 {相对秒}
+                const precise = LrcRenderer.extractPreciseWords(line.text, line.timestamp || 0)
+                if (precise && precise.words.length > 0) {
+                    line.text = precise.text
+                    line.words = precise.words
                 }
                 results.push(line)
             }

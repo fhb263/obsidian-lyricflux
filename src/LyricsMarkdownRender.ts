@@ -9,11 +9,13 @@ import {
 import Player from './Player.svelte'
 import LyricsPlugin from 'main'
 import LyricsRenderer from 'renderers'
+import { extractEmbeddedLyrics, pickEmbeddedLyrics } from 'renderers/id3'
 import type { LyricsLine } from 'renderers/renderer'
 
 export default class LyricsMarkdownRender extends MarkdownRenderChild {
     static readonly AUDIO_FILE_REGEX = /^source (?<audio>.*)/i
     static readonly LYRICS_FILE_REGEX = /^lyrics (?<links>.*)/i
+    static readonly EMBEDDED_LYRICS_REGEX = /^embedded-lyrics\s*$/i
     static readonly INTERNAL_LINK_REGEX = /\[\[(?<link>.*)\]\]/
 
     /** Check if path is an absolute Windows path (C:\...) */
@@ -100,6 +102,29 @@ export default class LyricsMarkdownRender extends MarkdownRenderChild {
         }
     }
 
+    /** Read the source audio file as binary, resolving its path the same way the player does. */
+    private async readAudioBinary(): Promise<ArrayBuffer | Uint8Array | null> {
+        if (!this.audioPath) return null
+
+        const internalLink = this.audioPath.match(LyricsMarkdownRender.INTERNAL_LINK_REGEX)
+        if (internalLink?.groups?.link) {
+            const file = this.plugin.app.metadataCache.getFirstLinkpathDest(internalLink.groups.link, this.path)
+            if (file instanceof TFile) {
+                try { return await this.app.vault.readBinary(file) } catch { return null }
+            }
+        } else if (LyricsMarkdownRender.isWinAbsolute(this.audioPath)) {
+            // Absolute path outside vault — read via Node.js fs
+            return LyricsMarkdownRender.readLocalBinary(this.audioPath)
+        } else {
+            // Vault-relative path
+            const file = this.app.vault.getAbstractFileByPath(this.audioPath)
+            if (file instanceof TFile) {
+                try { return await this.app.vault.readBinary(file) } catch { return null }
+            }
+        }
+        return null
+    }
+
     private lastTime: number = 0
 
     private updateTimestamp = (sec: number, seek: boolean = false) => {
@@ -139,32 +164,46 @@ export default class LyricsMarkdownRender extends MarkdownRenderChild {
         this.emitState()
 
         if (!this.pauseHl) {
+            // 对唱/合唱：同一时间戳对应多行歌词，全部作为当前行高亮
+            let hlStart = hl
+            let hlEnd = hl
+            if (hl >= 0) {
+                const t = lyrics.item(hl).dataset.time
+                while (hlStart > 0 && lyrics.item(hlStart - 1).dataset.time === t) hlStart--
+                while (hlEnd + 1 < lyrics.length && lyrics.item(hlEnd + 1).dataset.time === t) hlEnd++
+            }
+
             //remove highlight and set past/future
             lyrics.forEach((el, index) => {
                 el.removeClass('lyrics-highlighted')
                 el.removeClass('lyrics-line-past')
                 el.removeClass('lyrics-line-future')
-                if (index < hl) {
+                if (index < hlStart) {
                     el.addClass('lyrics-line-past')
-                } else if (index > hl) {
+                } else if (index > hlEnd) {
                     el.addClass('lyrics-line-future')
                 }
             })
 
             if (hl >= 0) {
-                const hlel = lyrics.item(hl)
-                if (hlel && !hlel.hasClass('lyrics-highlighted')) {
-                    hlel.addClass('lyrics-highlighted')
-                    if (this.autoScroll) {
-                        hlel.scrollIntoView({
-                            behavior: 'smooth',
-                            block: 'center',
-                        })
+                // 高亮同一时间戳的所有行
+                for (let i = hlStart; i <= hlEnd; i++) {
+                    const hlel = lyrics.item(i)
+                    if (hlel && !hlel.hasClass('lyrics-highlighted')) {
+                        hlel.addClass('lyrics-highlighted')
                     }
+                }
+                if (this.autoScroll) {
+                    lyrics.item(hlStart).scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'center',
+                    })
                 }
                 // Karaoke: highlight words up to current time
                 if (this.karaoke) {
-                    this.highlightWords(hlel, sec)
+                    for (let i = hlStart; i <= hlEnd; i++) {
+                        this.highlightWords(lyrics.item(i), sec)
+                    }
                 }
             }
         }
@@ -395,6 +434,22 @@ export default class LyricsMarkdownRender extends MarkdownRenderChild {
             }
         }
 
+        // Lyrics already resolved during onload (embedded-in-MP3 or inline)
+        if (this.effectiveLyricsContent) {
+            this.lyricsRenderer.render(
+                this.effectiveLyricsContent,
+                wrapper as HTMLDivElement,
+                this.path,
+                this,
+                this.karaoke,
+            )
+            if (this.player) {
+                const sec = this.player.getTimeStamp()
+                this.updateTimestamp(sec, true)
+            }
+            return
+        }
+
         if (this.source.length > 0) {
             let eol = this.source.indexOf('\n')
             if (eol >= 0 && this.source.length > eol) {
@@ -452,8 +507,22 @@ export default class LyricsMarkdownRender extends MarkdownRenderChild {
                     }
                 }
                 directiveEnd = i + 1
+            } else if (line.match(LyricsMarkdownRender.EMBEDDED_LYRICS_REGEX)) {
+                // Legacy explicit directive: auto-detection now covers this, just skip the line
+                directiveEnd = i + 1
             } else {
                 break
+            }
+        }
+
+        // Auto-detect: when there is no external lyrics file and no inline lyrics,
+        // try reading lyrics embedded inside the audio file's ID3 tag (USLT frame)
+        const inlineLyrics = lines.slice(directiveEnd).join('\n').trim()
+        if (!lyricsContent && !inlineLyrics && this.audioPath) {
+            const audioBuf = await this.readAudioBinary()
+            if (audioBuf) {
+                const picked = pickEmbeddedLyrics(extractEmbeddedLyrics(audioBuf))
+                if (picked) lyricsContent = picked
             }
         }
 

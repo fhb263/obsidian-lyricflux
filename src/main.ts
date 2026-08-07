@@ -314,6 +314,7 @@ class LyricsView extends ItemView {
     private statusBarMode: HTMLElement | null = null
     private statusBarSpeed: HTMLElement | null = null
     private statusBarVolume: HTMLElement | null = null
+    private statusBarLocate: HTMLElement | null = null
 
     private songListPopup: HTMLElement | null = null
     private songListSearchEl: HTMLInputElement | null = null
@@ -411,6 +412,12 @@ class LyricsView extends ItemView {
             this.renderSpeedLabel()
         })
 
+        // Locate: switch to the tab already showing this LRC note (like a browser tab)
+        this.statusBarLocate = this.statusBar.createSpan({ cls: 'lyrics-statusbar-locate-btn' })
+        this.statusBarLocate.setAttribute('title', '定位到歌词笔记标签页')
+        setIcon(this.statusBarLocate, 'locate-fixed')
+        this.statusBarLocate.addEventListener('click', () => this.locateLyricsNote())
+
         // Song name
         const info = this.statusBar.createDiv({ cls: 'lyrics-statusbar-info' })
         this.statusBarTitle = info.createSpan({ cls: 'lyrics-statusbar-song', text: 'LyricFlux' })
@@ -506,8 +513,10 @@ class LyricsView extends ItemView {
             this.statusBarTitle.setText('LyricFlux')
             if (this.statusBarTime) this.statusBarTime.setText('')
             setIcon(this.statusBarPlay!, 'play')
+            this.statusBarLocate?.addClass('lyrics-statusbar-locate-hidden')
             return
         }
+        this.statusBarLocate?.removeClass('lyrics-statusbar-locate-hidden')
         const title = state.title || '未知歌曲'
         const actor = state.actor || '未知艺术家'
         this.statusBarTitle.setText(`${title} - ${actor}`)
@@ -527,6 +536,24 @@ class LyricsView extends ItemView {
         const m = Math.floor(sec / 60)
         const s = Math.floor(sec % 60)
         return `${m < 10 ? '0' + m : m}:${s < 10 ? '0' + s : s}`
+    }
+
+    /** 定位到歌词笔记标签页：若已打开则切换到该标签（排序不变），否则新开标签页打开 */
+    private locateLyricsNote() {
+        const state = this.plugin.getLyricsState()
+        const path = state?.filePath
+        if (!path) return
+
+        // 查找该笔记是否已在一个 markdown 标签页中打开
+        const leaves = this.plugin.app.workspace.getLeavesOfType('markdown')
+        const existing = leaves.find((leaf) => leaf.getViewState().state?.file === path)
+        if (existing) {
+            // 已打开：切换到那个标签页，保持标签排序位置
+            this.plugin.app.workspace.setActiveLeaf(existing)
+            return
+        }
+        // 未打开：新开一个标签页打开（不覆盖当前标签页）
+        this.plugin.app.workspace.openLinkText(path, '', true)
     }
 
     // --- Lyrics rendering ---
@@ -553,9 +580,17 @@ class LyricsView extends ItemView {
 
         const timeMs = Math.round(state.currentTime * 1000)
 
+        // 对唱/合唱：同一时间戳的所有行视为当前行
+        const curLine = state.lyrics[state.currentIndex]
+        const curTs = curLine?.timestamp
+
         state.lyrics.forEach((line, index) => {
-            const isCurrent = index === state.currentIndex
-            const isPast = index < state.currentIndex
+            const isCurrent = curTs !== undefined
+                ? line.timestamp === curTs
+                : index === state.currentIndex
+            const isPast = curTs !== undefined
+                ? (line.timestamp ?? -1) < curTs
+                : index < state.currentIndex
             let cls = 'lyrics-panel-line'
             if (isCurrent) cls += ' lyrics-panel-highlighted'
             else if (isPast) cls += ' lyrics-panel-past'
