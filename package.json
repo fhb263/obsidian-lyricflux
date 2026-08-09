@@ -1,6 +1,6 @@
 {
 	"name": "obsidian-lyricflux",
-	"version": "1.3.3",
+	"version": "1.3.4",
 	"description": "Enhance the audio player with interacive lyrics for obsidian",
 	"main": "main.js",
 	"scripts": {

@@ -1,8 +1,8 @@
 <script lang="ts">
 export let src: string
 export let timeupdate: (time: number) => void
-export let loop: boolean = false
 let player: HTMLAudioElement
+export let onended: () => void = () => {}
 export let time: number
 export let onPlay: () => void
 export function seek(t: number) {
@@ -28,17 +28,6 @@ export function pause(): void {
     if (!player.paused) {
         player.pause()
     }
-}
-
-export function setLoop(value: boolean): void {
-    loop = value
-    if (player) {
-        player.loop = value
-    }
-}
-
-export function getLoop(): boolean {
-    return loop
 }
 
 export function getDuration(): number {
@@ -80,6 +69,12 @@ const _play = () => {
         onPlay()
     }
 }
+
+const _ended = () => {
+    if (onended) {
+        onended()
+    }
+}
 </script>
 
 <div class="audio-wrapper">
@@ -88,10 +83,10 @@ const _play = () => {
         controlslist="nodownload"
         {src}
         controls
-        loop={loop}
         bind:currentTime={time}
         on:timeupdate={_timeupdate}
         on:play={_play}
+        on:ended={_ended}
     ></audio>
 </div>
 

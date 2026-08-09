@@ -1,5 +1,6 @@
 import { PluginSettingTab, Setting, type App, Notice } from 'obsidian'
 import LyrcisPlugin from 'main'
+import type { PlayMode } from 'main'
 
 export interface Settings {
     autoScroll: boolean
@@ -7,6 +8,8 @@ export interface Settings {
     onlyShowMarked: boolean
     karaoke: boolean
     lyricsFolder: string
+    playMode: PlayMode
+    flashSwitch: boolean
 }
 export const DEFAULT_SETTINGS: Settings = {
     autoScroll: true,
@@ -14,6 +17,8 @@ export const DEFAULT_SETTINGS: Settings = {
     onlyShowMarked: false,
     karaoke: false,
     lyricsFolder: '',
+    playMode: 'off',
+    flashSwitch: false,
 }
 
 export default class LyricsSettings extends PluginSettingTab {
@@ -57,11 +62,21 @@ export default class LyricsSettings extends PluginSettingTab {
 
         new Setting(containerEl)
             .setName('逐字高亮')
-            .setDesc('默认关闭，启用后显示逐字高亮效果（支持主流 <mm:ss.xx> 逐字时间标记，如 <00:12.167>沧<00:13.000>海，兼容旧 {秒数} 语法）')
+            .setDesc('默认关闭，启用后显示逐字高亮效果（支持主流 <mm:ss.xx> 逐字时间标记，如 <00:12.167>沧<00:13.000>海）')
             .addToggle((toggle) => {
                 toggle.setValue(this.settings.karaoke)
                 toggle.onChange((value) => {
                     this.updateSettings({ karaoke: value })
+                })
+            })
+
+        new Setting(containerEl)
+            .setName('后台播放')
+            .setDesc('默认关闭，最小化时暂停歌曲；开启后 Obsidian 最小化时会保持播放，但是请注意切歌时会瞬间弹出窗口又最小化')
+            .addToggle((toggle) => {
+                toggle.setValue(this.settings.flashSwitch)
+                toggle.onChange((value) => {
+                    this.updateSettings({ flashSwitch: value })
                 })
             })
 

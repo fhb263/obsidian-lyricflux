@@ -397,6 +397,7 @@ var require_chunk = __commonJS({
 var main_exports = {};
 __export(main_exports, {
   LYRICS_VIEW_TYPE: () => LYRICS_VIEW_TYPE,
+  PLAY_MODES: () => PLAY_MODES,
   SPEED_OPTIONS: () => SPEED_OPTIONS,
   VOLUME_OPTIONS: () => VOLUME_OPTIONS,
   default: () => LyricsPlugin
@@ -1031,7 +1032,7 @@ function create_fragment(ctx) {
       audio_animationframe = raf(audio_timeupdate_handler);
       audio_updating = true;
     }
-    ctx[22].call(audio);
+    ctx[21].call(audio);
   }
   return {
     c() {
@@ -1039,17 +1040,15 @@ function create_fragment(ctx) {
       audio = element("audio");
       attr(audio, "controlslist", "nodownload");
       if (!src_url_equal(audio.src, audio_src_value = /*src*/
-      ctx[2]))
+      ctx[1]))
         attr(audio, "src", audio_src_value);
       audio.controls = true;
-      audio.loop = /*loop*/
-      ctx[0];
       attr(div, "class", "audio-wrapper");
     },
     m(target, anchor) {
       insert(target, div, anchor);
       append(div, audio);
-      ctx[21](audio);
+      ctx[20](audio);
       if (!mounted) {
         dispose = [
           listen(audio, "timeupdate", audio_timeupdate_handler),
@@ -1057,12 +1056,18 @@ function create_fragment(ctx) {
             audio,
             "timeupdate",
             /*_timeupdate*/
-            ctx[4]
+            ctx[3]
           ),
           listen(
             audio,
             "play",
             /*_play*/
+            ctx[4]
+          ),
+          listen(
+            audio,
+            "ended",
+            /*_ended*/
             ctx[5]
           )
         ];
@@ -1071,22 +1076,17 @@ function create_fragment(ctx) {
     },
     p(ctx2, [dirty]) {
       if (dirty & /*src*/
-      4 && !src_url_equal(audio.src, audio_src_value = /*src*/
-      ctx2[2])) {
+      2 && !src_url_equal(audio.src, audio_src_value = /*src*/
+      ctx2[1])) {
         attr(audio, "src", audio_src_value);
       }
-      if (dirty & /*loop*/
-      1) {
-        audio.loop = /*loop*/
-        ctx2[0];
-      }
       if (!audio_updating && dirty & /*time*/
-      2 && !isNaN(
+      1 && !isNaN(
         /*time*/
-        ctx2[1]
+        ctx2[0]
       )) {
         audio.currentTime = /*time*/
-        ctx2[1];
+        ctx2[0];
       }
       audio_updating = false;
     },
@@ -1096,7 +1096,7 @@ function create_fragment(ctx) {
       if (detaching) {
         detach(div);
       }
-      ctx[21](null);
+      ctx[20](null);
       mounted = false;
       run_all(dispose);
     }
@@ -1105,12 +1105,13 @@ function create_fragment(ctx) {
 function instance($$self, $$props, $$invalidate) {
   let { src } = $$props;
   let { timeupdate } = $$props;
-  let { loop: loop2 = false } = $$props;
   let player;
+  let { onended = () => {
+  } } = $$props;
   let { time } = $$props;
   let { onPlay } = $$props;
   function seek(t) {
-    $$invalidate(1, time = t);
+    $$invalidate(0, time = t);
     play();
   }
   function getTimeStamp() {
@@ -1129,21 +1130,12 @@ function instance($$self, $$props, $$invalidate) {
       player.pause();
     }
   }
-  function setLoop(value) {
-    $$invalidate(0, loop2 = value);
-    if (player) {
-      $$invalidate(3, player.loop = value, player);
-    }
-  }
-  function getLoop() {
-    return loop2;
-  }
   function getDuration() {
     return (player === null || player === void 0 ? void 0 : player.duration) || 0;
   }
   function setRate(rate) {
     if (player) {
-      $$invalidate(3, player.playbackRate = rate, player);
+      $$invalidate(2, player.playbackRate = rate, player);
     }
   }
   function getRate() {
@@ -1151,7 +1143,7 @@ function instance($$self, $$props, $$invalidate) {
   }
   function setVolume(vol) {
     if (player) {
-      $$invalidate(3, player.volume = Math.max(0, Math.min(1, vol)), player);
+      $$invalidate(2, player.volume = Math.max(0, Math.min(1, vol)), player);
     }
   }
   function isReady() {
@@ -1171,44 +1163,48 @@ function instance($$self, $$props, $$invalidate) {
       onPlay();
     }
   };
+  const _ended = () => {
+    if (onended) {
+      onended();
+    }
+  };
   function audio_binding($$value) {
     binding_callbacks[$$value ? "unshift" : "push"](() => {
       player = $$value;
-      $$invalidate(3, player);
+      $$invalidate(2, player);
     });
   }
   function audio_timeupdate_handler() {
     time = this.currentTime;
-    $$invalidate(1, time);
+    $$invalidate(0, time);
   }
   $$self.$$set = ($$props2) => {
     if ("src" in $$props2)
-      $$invalidate(2, src = $$props2.src);
+      $$invalidate(1, src = $$props2.src);
     if ("timeupdate" in $$props2)
       $$invalidate(6, timeupdate = $$props2.timeupdate);
-    if ("loop" in $$props2)
-      $$invalidate(0, loop2 = $$props2.loop);
+    if ("onended" in $$props2)
+      $$invalidate(7, onended = $$props2.onended);
     if ("time" in $$props2)
-      $$invalidate(1, time = $$props2.time);
+      $$invalidate(0, time = $$props2.time);
     if ("onPlay" in $$props2)
-      $$invalidate(7, onPlay = $$props2.onPlay);
+      $$invalidate(8, onPlay = $$props2.onPlay);
   };
   return [
-    loop2,
     time,
     src,
     player,
     _timeupdate,
     _play,
+    _ended,
     timeupdate,
+    onended,
     onPlay,
     seek,
     getTimeStamp,
     play,
     paused,
     pause,
-    setLoop,
-    getLoop,
     getDuration,
     setRate,
     getRate,
@@ -1223,64 +1219,56 @@ var Player = class extends SvelteComponent {
   constructor(options) {
     super();
     init(this, options, instance, create_fragment, safe_not_equal, {
-      src: 2,
+      src: 1,
       timeupdate: 6,
-      loop: 0,
-      time: 1,
-      onPlay: 7,
-      seek: 8,
-      getTimeStamp: 9,
-      play: 10,
-      paused: 11,
-      pause: 12,
-      setLoop: 13,
-      getLoop: 14,
-      getDuration: 15,
-      setRate: 16,
-      getRate: 17,
-      setVolume: 18,
-      isReady: 19,
-      getVolume: 20
+      onended: 7,
+      time: 0,
+      onPlay: 8,
+      seek: 9,
+      getTimeStamp: 10,
+      play: 11,
+      paused: 12,
+      pause: 13,
+      getDuration: 14,
+      setRate: 15,
+      getRate: 16,
+      setVolume: 17,
+      isReady: 18,
+      getVolume: 19
     });
   }
   get seek() {
-    return this.$$.ctx[8];
-  }
-  get getTimeStamp() {
     return this.$$.ctx[9];
   }
-  get play() {
+  get getTimeStamp() {
     return this.$$.ctx[10];
   }
-  get paused() {
+  get play() {
     return this.$$.ctx[11];
   }
-  get pause() {
+  get paused() {
     return this.$$.ctx[12];
   }
-  get setLoop() {
+  get pause() {
     return this.$$.ctx[13];
   }
-  get getLoop() {
+  get getDuration() {
     return this.$$.ctx[14];
   }
-  get getDuration() {
+  get setRate() {
     return this.$$.ctx[15];
   }
-  get setRate() {
+  get getRate() {
     return this.$$.ctx[16];
   }
-  get getRate() {
+  get setVolume() {
     return this.$$.ctx[17];
   }
-  get setVolume() {
+  get isReady() {
     return this.$$.ctx[18];
   }
-  get isReady() {
-    return this.$$.ctx[19];
-  }
   get getVolume() {
-    return this.$$.ctx[20];
+    return this.$$.ctx[19];
   }
 };
 var Player_default = Player;
@@ -1856,6 +1844,7 @@ function pickEmbeddedLyrics(frames) {
 var _LyricsMarkdownRender = class extends import_obsidian5.MarkdownRenderChild {
   constructor(plugin, source, container, ctx) {
     super(container);
+    this.audioBlobUrl = "";
     this.currentHL = -1;
     this.pauseHl = false;
     this.onlyShowMarked = false;
@@ -2070,7 +2059,6 @@ var _LyricsMarkdownRender = class extends import_obsidian5.MarkdownRenderChild {
     this.autoScroll = this.plugin.getSettings().autoScroll;
     this.sentenceMode = this.plugin.getSettings().sentenceMode;
     this.onlyShowMarked = this.plugin.getSettings().onlyShowMarked;
-    this.loop = false;
     this.karaoke = this.plugin.getSettings().karaoke;
     this.lyricsRenderer = new LyricsRenderer(plugin.app);
   }
@@ -2087,17 +2075,16 @@ var _LyricsMarkdownRender = class extends import_obsidian5.MarkdownRenderChild {
       return null;
     }
   }
-  /** Read a local file as Buffer using Node.js fs */
-  static readLocalBinary(filePath) {
+  /** Read a local file as Buffer using Node.js fs（异步，不阻塞主线程） */
+  static async readLocalBinary(filePath) {
     try {
       const fs = window.require("fs");
-      return fs.readFileSync(filePath);
+      return await fs.promises.readFile(filePath);
     } catch (e) {
       return null;
     }
   }
-  /** Convert Buffer to data URI */
-  static bufToDataUri(buf, ext) {
+  static getAudioMime(ext) {
     const mimeMap = {
       mp3: "audio/mpeg",
       wav: "audio/wav",
@@ -2106,8 +2093,7 @@ var _LyricsMarkdownRender = class extends import_obsidian5.MarkdownRenderChild {
       aac: "audio/aac",
       m4a: "audio/mp4"
     };
-    const mime = mimeMap[ext] || "audio/mpeg";
-    return `data:${mime};base64,${buf.toString("base64")}`;
+    return mimeMap[ext] || "audio/mpeg";
   }
   /** Read the source audio file as binary, resolving its path the same way the player does. */
   async readAudioBinary() {
@@ -2295,10 +2281,12 @@ var _LyricsMarkdownRender = class extends import_obsidian5.MarkdownRenderChild {
           }
         }
       } else if (_LyricsMarkdownRender.isWinAbsolute(this.audioPath)) {
-        const ext = ((_f = this.audioPath.split(".").pop()) == null ? void 0 : _f.toLowerCase()) || "mp3";
-        const buf = _LyricsMarkdownRender.readLocalBinary(this.audioPath);
-        if (buf)
-          src = _LyricsMarkdownRender.bufToDataUri(buf, ext);
+        const buf = await _LyricsMarkdownRender.readLocalBinary(this.audioPath);
+        if (buf) {
+          const ext = ((_f = this.audioPath.split(".").pop()) == null ? void 0 : _f.toLowerCase()) || "mp3";
+          src = URL.createObjectURL(new Blob([buf], { type: _LyricsMarkdownRender.getAudioMime(ext) }));
+          this.audioBlobUrl = src;
+        }
       } else {
         src = this.app.vault.adapter.getResourcePath(this.audioPath);
       }
@@ -2315,7 +2303,9 @@ var _LyricsMarkdownRender = class extends import_obsidian5.MarkdownRenderChild {
           onPlay: () => {
             this.pauseHl = false;
           },
-          loop: this.loop
+          onended: () => {
+            this.plugin.handleSongEnded(this);
+          }
         }
       });
       fragment.append(playerEl);
@@ -2348,6 +2338,10 @@ var _LyricsMarkdownRender = class extends import_obsidian5.MarkdownRenderChild {
       audio.removeAttribute("src");
       audio.load();
     });
+    if (this.audioBlobUrl) {
+      URL.revokeObjectURL(this.audioBlobUrl);
+      this.audioBlobUrl = "";
+    }
     this.plugin.unregisterRenderer(this.path);
     this.plugin.removeSettingsListener(this.onSettingsChanged);
     this.plugin.updateLyricsState(null);
@@ -2422,7 +2416,9 @@ var DEFAULT_SETTINGS = {
   sentenceMode: false,
   onlyShowMarked: false,
   karaoke: false,
-  lyricsFolder: ""
+  lyricsFolder: "",
+  playMode: "off",
+  flashSwitch: false
 };
 var LyricsSettings = class extends import_obsidian6.PluginSettingTab {
   constructor(plugin, settings) {
@@ -2449,10 +2445,16 @@ var LyricsSettings = class extends import_obsidian6.PluginSettingTab {
         this.updateSettings({ sentenceMode: value });
       });
     });
-    new import_obsidian6.Setting(containerEl).setName("\u9010\u5B57\u9AD8\u4EAE").setDesc("\u9ED8\u8BA4\u5173\u95ED\uFF0C\u542F\u7528\u540E\u663E\u793A\u9010\u5B57\u9AD8\u4EAE\u6548\u679C\uFF08\u652F\u6301\u4E3B\u6D41 <mm:ss.xx> \u9010\u5B57\u65F6\u95F4\u6807\u8BB0\uFF0C\u5982 <00:12.167>\u6CA7<00:13.000>\u6D77\uFF0C\u517C\u5BB9\u65E7 {\u79D2\u6570} \u8BED\u6CD5\uFF09").addToggle((toggle) => {
+    new import_obsidian6.Setting(containerEl).setName("\u9010\u5B57\u9AD8\u4EAE").setDesc("\u9ED8\u8BA4\u5173\u95ED\uFF0C\u542F\u7528\u540E\u663E\u793A\u9010\u5B57\u9AD8\u4EAE\u6548\u679C\uFF08\u652F\u6301\u4E3B\u6D41 <mm:ss.xx> \u9010\u5B57\u65F6\u95F4\u6807\u8BB0\uFF0C\u5982 <00:12.167>\u6CA7<00:13.000>\u6D77\uFF09").addToggle((toggle) => {
       toggle.setValue(this.settings.karaoke);
       toggle.onChange((value) => {
         this.updateSettings({ karaoke: value });
+      });
+    });
+    new import_obsidian6.Setting(containerEl).setName("\u540E\u53F0\u64AD\u653E").setDesc("\u9ED8\u8BA4\u5173\u95ED\uFF0C\u6700\u5C0F\u5316\u65F6\u6682\u505C\u6B4C\u66F2\uFF1B\u5F00\u542F\u540E Obsidian \u6700\u5C0F\u5316\u65F6\u4F1A\u4FDD\u6301\u64AD\u653E\uFF0C\u4F46\u662F\u8BF7\u6CE8\u610F\u5207\u6B4C\u65F6\u4F1A\u77AC\u95F4\u5F39\u51FA\u7A97\u53E3\u53C8\u6700\u5C0F\u5316").addToggle((toggle) => {
+      toggle.setValue(this.settings.flashSwitch);
+      toggle.onChange((value) => {
+        this.updateSettings({ flashSwitch: value });
       });
     });
     const folderSetting = new import_obsidian6.Setting(containerEl).setName("LRC\u7B14\u8BB0\u6587\u4EF6\u5939").setDesc("\u8BBE\u7F6E LRC \u7B14\u8BB0\u7684\u6587\u4EF6\u5939\u8DEF\u5F84\uFF08\u5728\u4FA7\u8FB9\u680F\u663E\u793A\u6B4C\u5355\u5217\u8868\uFF09");
@@ -2591,6 +2593,7 @@ var LyricsSettings = class extends import_obsidian6.PluginSettingTab {
 // src/main.ts
 var import_obsidian7 = require("obsidian");
 var LYRICS_VIEW_TYPE = "lyrics-sidebar";
+var PLAY_MODES = ["off", "single", "sequential", "shuffle"];
 var SPEED_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 var VOLUME_OPTIONS = [0, 25, 50, 75, 100];
 var LyricsPlugin = class extends import_obsidian7.Plugin {
@@ -2602,9 +2605,32 @@ var LyricsPlugin = class extends import_obsidian7.Plugin {
     this.activeRenderers = /* @__PURE__ */ new Map();
     this.songList = [];
     this.songListListeners = [];
-    this._singleLoop = false;
+    /** 乱序播放的洗牌队列：整张歌单随机播完一遍后才重新洗牌，避免隔几首又重复同一首 */
+    this.shuffleQueue = [];
+    this._playMode = "off";
     this._playbackRate = 1;
     this._volume = 75;
+    /** 切歌序号令牌：新的 advanceToSong 会让旧的（仍在轮询中的）切歌立即失效，避免并发竞争同一标签页 */
+    this.advanceSeq = 0;
+    /** flashSwitch 关闭时，最小化自动暂停播放的标记，恢复窗口后据此续播 */
+    this.autoPausedForMinimize = false;
+    /** flashSwitch 关闭时：最小化/隐藏自动暂停，恢复可见后续播 */
+    this.onVisibilityChange = () => {
+      if (this.getSettings().flashSwitch)
+        return;
+      if (document.hidden) {
+        const player = this.getActivePlayer();
+        if (player && !player.paused()) {
+          player.pause();
+          this.autoPausedForMinimize = true;
+        }
+      } else if (this.autoPausedForMinimize) {
+        this.autoPausedForMinimize = false;
+        const player = this.getActivePlayer();
+        if (player && player.paused())
+          player.play();
+      }
+    };
   }
   getSettings() {
     var _a;
@@ -2630,7 +2656,6 @@ var LyricsPlugin = class extends import_obsidian7.Plugin {
     if (renderer.player) {
       renderer.player.setRate(this._playbackRate);
       renderer.player.setVolume(this._volume / 100);
-      renderer.player.setLoop(this._singleLoop);
     }
   }
   unregisterRenderer(path) {
@@ -2663,20 +2688,6 @@ var LyricsPlugin = class extends import_obsidian7.Plugin {
     else
       player.pause();
   }
-  async playActivePlayer() {
-    const player = this.getActivePlayer();
-    if (player) {
-      if (player.paused())
-        player.play();
-      for (let i = 0; i < 50; i++) {
-        if (player.isReady())
-          return true;
-        await new Promise((r) => setTimeout(r, 200));
-      }
-      return true;
-    }
-    return false;
-  }
   getActivePlayer() {
     const activeFile = this.app.workspace.getActiveFile();
     if (activeFile) {
@@ -2690,16 +2701,36 @@ var LyricsPlugin = class extends import_obsidian7.Plugin {
     }
     return null;
   }
-  // --- Playback controls ---
-  isSingleLoop() {
-    return this._singleLoop;
-  }
-  toggleSingleLoop() {
-    this._singleLoop = !this._singleLoop;
-    for (const renderer of this.activeRenderers.values()) {
-      if (renderer.player)
-        renderer.player.setLoop(this._singleLoop);
+  /** 安全获取 Electron 当前窗口（remote 不可用时返回 null，功能降级为不重新最小化） */
+  getElectronWindow() {
+    var _a, _b, _c;
+    try {
+      const req = window.require;
+      if (typeof req !== "function")
+        return null;
+      const electron = req("electron");
+      const remote = (_a = electron == null ? void 0 : electron.remote) != null ? _a : req("@electron/remote");
+      return (_c = (_b = remote == null ? void 0 : remote.getCurrentWindow) == null ? void 0 : _b.call(remote)) != null ? _c : null;
+    } catch (e) {
+      return null;
     }
+  }
+  reMinimize(win) {
+    try {
+      if (win == null ? void 0 : win.minimize)
+        win.minimize();
+    } catch (e) {
+    }
+  }
+  // --- Playback controls ---
+  getPlayMode() {
+    return this._playMode;
+  }
+  cyclePlayMode() {
+    const idx = PLAY_MODES.indexOf(this._playMode);
+    this._playMode = PLAY_MODES[(idx + 1) % PLAY_MODES.length];
+    this.shuffleQueue = [];
+    this.updateSettings({ playMode: this._playMode });
     this.stateListeners.forEach((cb) => cb(this.state));
   }
   getPlaybackRate() {
@@ -2734,6 +2765,106 @@ var LyricsPlugin = class extends import_obsidian7.Plugin {
     }
     this.stateListeners.forEach((cb) => cb(this.state));
   }
+  handleSongEnded(renderer) {
+    var _a, _b;
+    switch (this._playMode) {
+      case "single":
+        (_a = renderer.player) == null ? void 0 : _a.seek(0);
+        break;
+      case "sequential":
+      case "shuffle": {
+        const next = this.getNextSong(renderer.path);
+        if (next && next.path !== renderer.path) {
+          void this.advanceToSong(next, renderer.path);
+        } else {
+          (_b = renderer.player) == null ? void 0 : _b.seek(0);
+        }
+        break;
+      }
+      case "off":
+      default:
+        break;
+    }
+  }
+  async advanceToSong(song, fromPath) {
+    var _a, _b, _c;
+    const mySeq = ++this.advanceSeq;
+    const file = this.app.vault.getAbstractFileByPath(song.path);
+    if (!(file instanceof import_obsidian7.TFile))
+      return;
+    const sourcePath = fromPath != null ? fromPath : (_a = this.getLyricsState()) == null ? void 0 : _a.filePath;
+    let leaf = null;
+    if (sourcePath) {
+      leaf = (_b = this.app.workspace.getLeavesOfType("markdown").find((l) => {
+        var _a2;
+        return ((_a2 = l.getViewState().state) == null ? void 0 : _a2.file) === sourcePath;
+      })) != null ? _b : null;
+    }
+    if (!leaf) {
+      leaf = this.app.workspace.getLeaf(false);
+    }
+    const prevLeaf = this.app.workspace.getMostRecentLeaf();
+    const windowFocused = document.hasFocus();
+    const electronWin = this.getElectronWindow();
+    const minimized = electronWin ? electronWin.isMinimized() : document.hidden;
+    if (minimized && !this.getSettings().flashSwitch) {
+      return;
+    }
+    try {
+      if (windowFocused || minimized) {
+        await leaf.openFile(file, { active: true });
+      } else {
+        await leaf.openFile(file, { active: false });
+        this.app.workspace.setActiveLeaf(leaf, { focus: false });
+      }
+    } catch (e) {
+      if (minimized)
+        this.reMinimize(electronWin);
+      return;
+    }
+    if (mySeq !== this.advanceSeq)
+      return;
+    const player = this.getActivePlayer();
+    if (player && !player.paused())
+      player.pause();
+    const registered = await this.waitForRenderer(song.path, mySeq);
+    if (mySeq !== this.advanceSeq)
+      return;
+    let played = false;
+    if (registered) {
+      if (minimized) {
+        const target = (_c = this.activeRenderers.get(song.path)) == null ? void 0 : _c.player;
+        if (target) {
+          if (target.paused())
+            target.play();
+          played = true;
+        }
+        this.reMinimize(electronWin);
+      } else {
+        played = await this.waitForPlayerReady(song.path, mySeq);
+      }
+    } else if (!windowFocused && !minimized) {
+      if (mySeq !== this.advanceSeq)
+        return;
+      try {
+        await leaf.openFile(file, { active: true });
+      } catch (e) {
+      }
+      const ok = await this.waitForRenderer(song.path, mySeq);
+      if (ok)
+        played = await this.waitForPlayerReady(song.path, mySeq);
+    }
+    if (mySeq !== this.advanceSeq)
+      return;
+    if (prevLeaf && prevLeaf !== leaf) {
+      try {
+        this.app.workspace.setActiveLeaf(prevLeaf, { focus: windowFocused && !minimized });
+      } catch (e) {
+      }
+    }
+    if (minimized)
+      this.reMinimize(electronWin);
+  }
   // --- Song list management ---
   async scanLyricSongs() {
     const folder = this.getSettings().lyricsFolder;
@@ -2758,32 +2889,99 @@ var LyricsPlugin = class extends import_obsidian7.Plugin {
       }
     }
     this.songList = songs.sort((a, b) => a.title.localeCompare(b.title));
+    this.shuffleQueue = [];
     this.songListListeners.forEach((cb) => cb());
   }
   getSongList() {
     return this.songList;
   }
   getNextSong(currentPath) {
+    var _a;
     if (this.songList.length === 0)
       return null;
-    if (this._singleLoop) {
-      return this.songList.find((s) => s.path === currentPath) || this.songList[0];
+    switch (this._playMode) {
+      case "single":
+        return this.songList.find((s) => s.path === currentPath) || this.songList[0];
+      case "shuffle": {
+        if (this.shuffleQueue.length === 0) {
+          this.buildShuffleQueue(currentPath);
+        }
+        return (_a = this.shuffleQueue.shift()) != null ? _a : null;
+      }
+      case "sequential":
+      case "off":
+      default: {
+        const idx = this.songList.findIndex((s) => s.path === currentPath);
+        if (idx === -1)
+          return this.songList[0];
+        return this.songList[(idx + 1) % this.songList.length];
+      }
     }
-    const idx = this.songList.findIndex((s) => s.path === currentPath);
-    if (idx === -1)
-      return this.songList[0];
-    return this.songList[(idx + 1) % this.songList.length];
   }
   getPrevSong(currentPath) {
     if (this.songList.length === 0)
       return null;
-    if (this._singleLoop) {
-      return this.songList.find((s) => s.path === currentPath) || this.songList[0];
+    switch (this._playMode) {
+      case "single":
+        return this.songList.find((s) => s.path === currentPath) || this.songList[0];
+      case "shuffle": {
+        const idx = this.songList.findIndex((s) => s.path === currentPath);
+        if (this.songList.length === 1)
+          return this.songList[0];
+        let rand = idx;
+        while (rand === idx) {
+          rand = Math.floor(Math.random() * this.songList.length);
+        }
+        return this.songList[rand];
+      }
+      default: {
+        const idx = this.songList.findIndex((s) => s.path === currentPath);
+        if (idx === -1)
+          return this.songList[this.songList.length - 1];
+        return this.songList[(idx - 1 + this.songList.length) % this.songList.length];
+      }
     }
-    const idx = this.songList.findIndex((s) => s.path === currentPath);
-    if (idx === -1)
-      return this.songList[this.songList.length - 1];
-    return this.songList[(idx - 1 + this.songList.length) % this.songList.length];
+  }
+  /** 生成洗牌队列：整张歌单 Fisher-Yates 打乱，每首播一遍后才重复；队首避免是当前歌曲 */
+  buildShuffleQueue(excludePath) {
+    var _a;
+    const songs = [...this.songList];
+    for (let i = songs.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [songs[i], songs[j]] = [songs[j], songs[i]];
+    }
+    if (excludePath && songs.length > 1 && ((_a = songs[0]) == null ? void 0 : _a.path) === excludePath) {
+      const [first] = songs.splice(0, 1);
+      songs.push(first);
+    }
+    this.shuffleQueue = songs;
+  }
+  /** 等待指定歌曲的渲染器注册（渲染完成） */
+  async waitForRenderer(path, mySeq, limit = 50) {
+    for (let i = 0; i < limit; i++) {
+      if (mySeq !== this.advanceSeq)
+        return false;
+      if (this.activeRenderers.get(path))
+        return true;
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    return false;
+  }
+  /** 等待指定歌曲音频就绪并开始播放 */
+  async waitForPlayerReady(path, mySeq, limit = 50) {
+    var _a;
+    for (let i = 0; i < limit; i++) {
+      if (mySeq !== this.advanceSeq)
+        return false;
+      const target = (_a = this.activeRenderers.get(path)) == null ? void 0 : _a.player;
+      if (target && target.isReady()) {
+        if (target.paused())
+          target.play();
+        return true;
+      }
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    return false;
   }
   async openLyricNote(path) {
     await this.app.workspace.openLinkText(path, "", false);
@@ -2809,6 +3007,7 @@ var LyricsPlugin = class extends import_obsidian7.Plugin {
   async onload() {
     const settings = { ...DEFAULT_SETTINGS, ...await this.loadData() };
     this.settings = new LyricsSettings(this, settings);
+    this._playMode = this.getSettings().playMode;
     this.addSettingTab(this.settings);
     this.registerMarkdownCodeBlockProcessor(
       "lrc",
@@ -2838,6 +3037,7 @@ var LyricsPlugin = class extends import_obsidian7.Plugin {
         }
       }, 300);
     }));
+    this.registerDomEvent(document, "visibilitychange", this.onVisibilityChange);
     await this.scanLyricSongs();
     this.registerEvent(this.app.vault.on("create", () => this.scanLyricSongs()));
     this.registerEvent(this.app.vault.on("delete", () => this.scanLyricSongs()));
@@ -2865,6 +3065,8 @@ var LyricsView = class extends import_obsidian7.ItemView {
     this.statusBarLocate = null;
     this.songListPopup = null;
     this.songListSearchEl = null;
+    this.songListTypeFilter = "all";
+    this.songListCountEl = null;
     this.statusBarVolumeIcon = null;
     this.volumePopup = null;
     this.volumeOutsideClickHandler = null;
@@ -2912,9 +3114,8 @@ var LyricsView = class extends import_obsidian7.ItemView {
   createStatusBar(container) {
     this.statusBar = container.createDiv({ cls: "lyrics-statusbar" });
     this.statusBarMode = this.statusBar.createSpan({ cls: "lyrics-statusbar-mode-btn" });
-    this.statusBarMode.setAttribute("title", "\u5F00\u542F/\u5173\u95ED\u5355\u66F2\u5FAA\u73AF");
     this.statusBarMode.addEventListener("click", () => {
-      this.plugin.toggleSingleLoop();
+      this.plugin.cyclePlayMode();
       this.renderModeIcon();
     });
     const controls = this.statusBar.createDiv({ cls: "lyrics-statusbar-controls" });
@@ -2958,9 +3159,17 @@ var LyricsView = class extends import_obsidian7.ItemView {
   renderModeIcon() {
     if (!this.statusBarMode)
       return;
-    const on = this.plugin.isSingleLoop();
-    (0, import_obsidian7.setIcon)(this.statusBarMode, on ? "repeat-1" : "repeat");
-    this.statusBarMode.toggleClass("lyrics-mode-active", on);
+    const mode = this.plugin.getPlayMode();
+    const icon = mode === "single" ? "repeat-1" : mode === "shuffle" ? "shuffle" : "repeat";
+    (0, import_obsidian7.setIcon)(this.statusBarMode, icon);
+    const titles = {
+      off: "\u64AD\u653E\u6A21\u5F0F\uFF1A\u5173\u95ED",
+      single: "\u64AD\u653E\u6A21\u5F0F\uFF1A\u5355\u66F2\u5FAA\u73AF",
+      sequential: "\u64AD\u653E\u6A21\u5F0F\uFF1A\u987A\u5E8F\u64AD\u653E",
+      shuffle: "\u64AD\u653E\u6A21\u5F0F\uFF1A\u4E71\u5E8F\u64AD\u653E"
+    };
+    this.statusBarMode.setAttribute("title", titles[mode]);
+    this.statusBarMode.toggleClass("lyrics-mode-active", mode !== "off");
   }
   renderSpeedLabel() {
     if (!this.statusBarSpeed)
@@ -3173,16 +3382,38 @@ var LyricsView = class extends import_obsidian7.ItemView {
     const container = this.containerEl.children[1];
     this.songListPopup = container.createDiv({ cls: "lyrics-song-popup" });
     const header = this.songListPopup.createDiv({ cls: "lyrics-song-popup-header" });
-    header.createSpan({ text: "\u6B4C\u66F2\u5217\u8868" });
+    const titleWrap = header.createDiv({ cls: "lyrics-song-popup-title-wrap" });
+    titleWrap.createSpan({ text: "\u6B4C\u66F2\u5217\u8868" });
+    this.songListCountEl = titleWrap.createSpan({ cls: "lyrics-song-popup-count", text: `(${this.plugin.getSongList().length})` });
     const closeBtn = header.createSpan({ cls: "lyrics-song-popup-close" });
     (0, import_obsidian7.setIcon)(closeBtn, "x");
     closeBtn.addEventListener("click", () => this.closeSongListPopup());
-    const searchWrap = this.songListPopup.createDiv({ cls: "lyrics-song-popup-search" });
+    const filterRow = this.songListPopup.createDiv({ cls: "lyrics-song-popup-filters" });
+    const searchWrap = filterRow.createDiv({ cls: "lyrics-song-popup-search" });
     this.songListSearchEl = searchWrap.createEl("input", {
       cls: "lyrics-song-popup-search-input",
       attr: { type: "text", placeholder: "\u641C\u7D22\u6B4C\u66F2..." }
     });
     this.songListSearchEl.addEventListener("input", () => this.renderPopupSongList());
+    const types = Array.from(new Set(
+      this.plugin.getSongList().map((s) => s.type).filter((t) => t && t.trim())
+    )).sort((a, b) => a.localeCompare(b));
+    if (types.length > 0) {
+      if (!types.includes(this.songListTypeFilter))
+        this.songListTypeFilter = "all";
+      const filterWrap = filterRow.createDiv({ cls: "lyrics-song-popup-filter" });
+      const select = filterWrap.createEl("select", { cls: "lyrics-song-popup-filter-select" });
+      select.createEl("option", { value: "all", text: "\u5168\u90E8\u7C7B\u578B" });
+      types.forEach((t) => select.createEl("option", { value: t, text: t }));
+      select.value = this.songListTypeFilter;
+      select.addEventListener("change", () => {
+        this.songListTypeFilter = select.value;
+        this.renderPopupSongList();
+      });
+    } else {
+      filterRow.addClass("lyrics-song-popup-filters-no-filter");
+      this.songListTypeFilter = "all";
+    }
     this.renderPopupSongList();
     this.songListSearchEl.focus();
   }
@@ -3196,10 +3427,20 @@ var LyricsView = class extends import_obsidian7.ItemView {
     const allSongs = this.plugin.getSongList();
     const state = this.plugin.getLyricsState();
     const query = ((_b = (_a = this.songListSearchEl) == null ? void 0 : _a.value) == null ? void 0 : _b.toLowerCase().trim()) || "";
-    const songs = query ? allSongs.filter((s) => s.title.toLowerCase().includes(query) || s.actor.toLowerCase().includes(query)) : allSongs;
+    const typeFilter = this.songListTypeFilter;
+    const songs = allSongs.filter((s) => {
+      const matchQuery = !query || s.title.toLowerCase().includes(query) || s.actor.toLowerCase().includes(query);
+      const matchType = typeFilter === "all" || s.type === typeFilter;
+      return matchQuery && matchType;
+    });
+    if (this.songListCountEl) {
+      const countText = songs.length === allSongs.length ? `(${songs.length})` : `(${songs.length} / ${allSongs.length})`;
+      this.songListCountEl.setText(countText);
+    }
     const list = this.songListPopup.createDiv({ cls: "lyrics-song-popup-list" });
     if (songs.length === 0) {
-      list.createDiv({ cls: "lyrics-songs-empty", text: query ? "\u6CA1\u6709\u5339\u914D\u7684\u6B4C\u66F2" : "\u6682\u65E0\u6B4C\u66F2" });
+      const hint = query ? "\u6CA1\u6709\u5339\u914D\u7684\u6B4C\u66F2" : typeFilter !== "all" ? "\u8BE5\u7C7B\u578B\u4E0B\u6682\u65E0\u6B4C\u66F2" : "\u6682\u65E0\u6B4C\u66F2";
+      list.createDiv({ cls: "lyrics-songs-empty", text: hint });
       return;
     }
     songs.forEach((song) => {
@@ -3222,16 +3463,7 @@ var LyricsView = class extends import_obsidian7.ItemView {
       item.addEventListener("click", async (e) => {
         e.stopPropagation();
         this.closeSongListPopup();
-        const player = this.plugin.getActivePlayer();
-        if (player && !player.paused())
-          player.pause();
-        await this.plugin.app.workspace.openLinkText(song.path, "", false);
-        for (let i = 0; i < 50; i++) {
-          const ok = await this.plugin.playActivePlayer();
-          if (ok)
-            break;
-          await new Promise((r) => setTimeout(r, 200));
-        }
+        await this.plugin.advanceToSong(song);
       });
     });
   }
@@ -3241,6 +3473,7 @@ var LyricsView = class extends import_obsidian7.ItemView {
       this.songListPopup.remove();
       this.songListPopup = null;
     }
+    this.songListCountEl = null;
     (_a = this.lyricsPanel) == null ? void 0 : _a.removeClass("lyrics-panel-hidden");
   }
   resolveBannerUrl(banner, songPath) {

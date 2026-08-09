@@ -460,6 +460,18 @@ If your plugin does not need CSS, delete this file.
     flex-shrink: 0;
 }
 
+.lyrics-song-popup-title-wrap {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.lyrics-song-popup-count {
+    font-size: var(--font-ui-smaller);
+    font-weight: 400;
+    color: var(--text-muted);
+}
+
 .lyrics-song-popup-close {
     display: flex;
     align-items: center;
@@ -476,9 +488,21 @@ If your plugin does not need CSS, delete this file.
     color: var(--text-normal);
 }
 
-.lyrics-song-popup-search {
-    padding: 4px 12px 8px;
+.lyrics-song-popup-filters {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 12px 8px;
     flex-shrink: 0;
+}
+
+.lyrics-song-popup-search {
+    flex: 2;
+    min-width: 0;
+}
+
+.lyrics-song-popup-filters-no-filter .lyrics-song-popup-search {
+    flex: 1;
 }
 
 .lyrics-song-popup-search-input {
@@ -496,6 +520,22 @@ If your plugin does not need CSS, delete this file.
 
 .lyrics-song-popup-search-input:focus {
     border-color: var(--text-accent);
+}
+
+.lyrics-song-popup-filter {
+    flex: 1;
+    min-width: 0;
+}
+
+.lyrics-song-popup-filter-select {
+    width: 100%;
+    padding: 5px 8px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    background: var(--background-primary);
+    color: var(--text-normal);
+    font-family: var(--font-text);
+    font-size: var(--font-ui-small);
 }
 
 .lyrics-song-popup-list {

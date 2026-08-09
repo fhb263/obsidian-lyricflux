@@ -33,34 +33,33 @@ export default class LyricsMarkdownRender extends MarkdownRenderChild {
         }
     }
 
-    /** Read a local file as Buffer using Node.js fs */
-    private static readLocalBinary(filePath: string): Buffer | null {
+    /** Read a local file as Buffer using Node.js fs（异步，不阻塞主线程） */
+    private static async readLocalBinary(filePath: string): Promise<Buffer | null> {
         try {
             const fs = (window as any).require('fs')
-            return fs.readFileSync(filePath)
+            return await fs.promises.readFile(filePath)
         } catch {
             return null
         }
     }
 
-    /** Convert Buffer to data URI */
-    private static bufToDataUri(buf: Buffer, ext: string): string {
+    private static getAudioMime(ext: string): string {
         const mimeMap: Record<string, string> = {
             mp3: 'audio/mpeg', wav: 'audio/wav', flac: 'audio/flac',
             ogg: 'audio/ogg', aac: 'audio/aac', m4a: 'audio/mp4',
         }
-        const mime = mimeMap[ext] || 'audio/mpeg'
-        return `data:${mime};base64,${buf.toString('base64')}`
+        return mimeMap[ext] || 'audio/mpeg'
     }
 
     private audioPath?: string
     private lyricsFilePath?: string
+    private audioBlobUrl = '' // 库外绝对路径音频的 Blob URL，onunload 时释放
     private source: string
     private app: App
     private container: HTMLElement
     public player?: Player
     private currentHL: number = -1
-    private path: string
+    public path: string
     private plugin: LyricsPlugin
     private lyricsRenderer: LyricsRenderer
     private pauseHl: boolean = false
@@ -68,7 +67,6 @@ export default class LyricsMarkdownRender extends MarkdownRenderChild {
 
     private autoScroll: boolean
     private onlyShowMarked: boolean = false
-    private loop: boolean
     private karaoke: boolean
     private lyricsLines: LyricsLine[] = []
 
@@ -87,7 +85,6 @@ export default class LyricsMarkdownRender extends MarkdownRenderChild {
         this.autoScroll = this.plugin.getSettings().autoScroll
         this.sentenceMode = this.plugin.getSettings().sentenceMode
         this.onlyShowMarked = this.plugin.getSettings().onlyShowMarked
-        this.loop = false
         this.karaoke = this.plugin.getSettings().karaoke
         this.lyricsRenderer = new LyricsRenderer(plugin.app)
     }
@@ -547,10 +544,13 @@ export default class LyricsMarkdownRender extends MarkdownRenderChild {
                     }
                 }
             } else if (LyricsMarkdownRender.isWinAbsolute(this.audioPath)) {
-                // Absolute path outside vault — read via Node.js fs
-                const ext = this.audioPath.split('.').pop()?.toLowerCase() || 'mp3'
-                const buf = LyricsMarkdownRender.readLocalBinary(this.audioPath)
-                if (buf) src = LyricsMarkdownRender.bufToDataUri(buf, ext)
+                // 库外绝对路径：异步读入 → Blob URL（避免 base64 内存膨胀约 2.7×）
+                const buf = await LyricsMarkdownRender.readLocalBinary(this.audioPath)
+                if (buf) {
+                    const ext = this.audioPath.split('.').pop()?.toLowerCase() || 'mp3'
+                    src = URL.createObjectURL(new Blob([buf], { type: LyricsMarkdownRender.getAudioMime(ext) }))
+                    this.audioBlobUrl = src
+                }
             } else {
                 // Vault-relative path
                 src = this.app.vault.adapter.getResourcePath(this.audioPath)
@@ -568,7 +568,7 @@ export default class LyricsMarkdownRender extends MarkdownRenderChild {
                     src,
                     timeupdate: this.updateTimestamp,
                     onPlay: () => { this.pauseHl = false },
-                    loop: this.loop,
+                    onended: () => { this.plugin.handleSongEnded(this) },
                 },
             })
             fragment.append(playerEl)
@@ -609,6 +609,11 @@ export default class LyricsMarkdownRender extends MarkdownRenderChild {
             audio.removeAttribute('src')
             audio.load()
         })
+        // 释放库外音频的 Blob URL，回收内存
+        if (this.audioBlobUrl) {
+            URL.revokeObjectURL(this.audioBlobUrl)
+            this.audioBlobUrl = ''
+        }
         this.plugin.unregisterRenderer(this.path)
         this.plugin.removeSettingsListener(this.onSettingsChanged)
         this.plugin.updateLyricsState(null)
