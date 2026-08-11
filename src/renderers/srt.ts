@@ -52,6 +52,7 @@ export default class SrtRenderer extends AbstractLyricsRenderer {
             if (blocks.length > 0) {
                 let mdEl = await Promise.all(
                     this.chunk(blocks, 4).map((parts) => {
+                        if (parts.length < 4) return Promise.resolve(container.createSpan()) // 畸形块防御
                         let t = this.parseTime(parts[1].trim())
                         let min = t[0] * 60 + t[1]
                         let sec = t[2]
@@ -65,7 +66,7 @@ export default class SrtRenderer extends AbstractLyricsRenderer {
                                 t[3],
                             timestr: `${minStr}:${secStr}`,
                             text: parts[3] ? parts[3].trim() : '',
-                            rows: parts[3].split(/\r?\n/g).length - 2,
+                            rows: parts[3] ? parts[3].split(/\r?\n/g).length - 2 : 1,
                         } as LyricsLine
                         // from += 2
                         let to = from + line.rows + 1
@@ -92,7 +93,7 @@ export default class SrtRenderer extends AbstractLyricsRenderer {
         const blocks = content.split(SrtRenderer.SRT_SPLITTER)
         blocks.shift()
         for (const parts of this.chunk(blocks, 4)) {
-            if (parts.length < 4) continue
+            if (parts.length < 4 || !parts[3]) continue
             const t = this.parseTime(parts[1].trim())
             const min = t[0] * 60 + t[1]
             const sec = t[2]
@@ -105,7 +106,7 @@ export default class SrtRenderer extends AbstractLyricsRenderer {
                     t[2] * 1000 +
                     t[3],
                 timestr: `${minStr}:${secStr}`,
-                text: parts[3] ? parts[3].trim() : '',
+                text: parts[3].trim(),
                 rows: parts[3].split(/\r?\n/g).length - 2,
             })
         }

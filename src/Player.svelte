@@ -3,11 +3,13 @@ export let src: string
 export let timeupdate: (time: number) => void
 let player: HTMLAudioElement
 export let onended: () => void = () => {}
+export let onError: () => void = () => {}
 export let time: number
 export let onPlay: () => void
+export let onPause: () => void = () => {}
 export function seek(t: number) {
+    // 仅跳转位置，不强制播放：暂停状态下点击歌词保持暂停（v1.4.0 巩固）
     time = t
-    play()
 }
 
 export function getTimeStamp(): number {
@@ -70,9 +72,21 @@ const _play = () => {
     }
 }
 
+const _pause = () => {
+    if (onPause) {
+        onPause()
+    }
+}
+
 const _ended = () => {
     if (onended) {
         onended()
+    }
+}
+
+const _error = () => {
+    if (onError) {
+        onError()
     }
 }
 </script>
@@ -86,7 +100,9 @@ const _ended = () => {
         bind:currentTime={time}
         on:timeupdate={_timeupdate}
         on:play={_play}
+        on:pause={_pause}
         on:ended={_ended}
+        on:error={_error}
     ></audio>
 </div>
 

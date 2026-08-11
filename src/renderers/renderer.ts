@@ -30,6 +30,25 @@ export abstract class AbstractLyricsRenderer {
         this.app = app
     }
 
+    /** 判断文本是否含 Markdown 标记；纯文本走 setText 直出，避免整篇过 Markdown 解析（性能） */
+    private static containsMarkdown(content: string): boolean {
+        return /[*_`~[\]]#]/.test(content)
+    }
+
+    /** 渲染一行文本：仅当含 Markdown 标记时才走 MarkdownRenderer，否则纯文本直出 */
+    protected async renderText(
+        el: HTMLElement,
+        content: string,
+        path: string,
+        component: Component,
+    ): Promise<void> {
+        if (content && AbstractLyricsRenderer.containsMarkdown(content)) {
+            await MarkdownRenderer.render(this.app, content, el, path, component)
+        } else {
+            el.setText(content)
+        }
+    }
+
     public abstract match(content: string): number
 
     protected async renderLine(
@@ -59,14 +78,12 @@ export abstract class AbstractLyricsRenderer {
 
             // Bilingual support: <annotation> shown as secondary, no karaoke
             if (line.annotation) {
-                await MarkdownRenderer.render(this.app, line.text, text, path, component)
-                if (line.annotation) {
-                    const sec = text.createDiv()
-                    sec.addClass('lyrics-lang-secondary')
-                    await MarkdownRenderer.render(this.app, line.annotation, sec, path, component)
-                }
+                await this.renderText(text, line.text, path, component)
+                const sec = text.createDiv()
+                sec.addClass('lyrics-lang-secondary')
+                await this.renderText(sec, line.annotation, path, component)
             } else {
-                await MarkdownRenderer.render(this.app, line.text, text, path, component)
+                await this.renderText(text, line.text, path, component)
             }
 
             const mark = lineEl.find('mark')
@@ -120,7 +137,7 @@ export abstract class AbstractLyricsRenderer {
                     wordEl.dataset.time = `${Math.floor(word.timestamp)}`
                 }
             } else {
-                await MarkdownRenderer.render(this.app, line.text, text, path, component)
+                await this.renderText(text, line.text, path, component)
             }
 
             // Always show annotation (plain text, no karaoke)

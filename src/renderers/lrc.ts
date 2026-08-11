@@ -4,6 +4,7 @@ import {
     type LyricsLine,
     AbstractLyricsRenderer,
 } from 'renderers/renderer'
+import { WORD_SPLIT_REGEX } from './wordSplitter'
 
 export default class LrcRenderer extends AbstractLyricsRenderer {
     static readonly LRC_SPLITTER = /\[(((\d+):)?(\d+):(\d+(\.\d+)?))\]/g
@@ -22,64 +23,38 @@ export default class LrcRenderer extends AbstractLyricsRenderer {
 
     /**
      * 提取逐字时间标记，返回 { 显示文本, 逐字数组 }；无任何标记返回 null。
-     * 优先解析主流增强 LRC 的 `<mm:ss.xx>` 绝对时间，兼容旧 `{相对秒}` 语法。
+     * 仅支持主流增强 LRC 的 `<mm:ss.xx>` 绝对时间语法。
      */
     private static extractPreciseWords(
         text: string,
-        lineStartMs: number,
     ): { text: string; words: { text: string; timestamp: number }[] } | null {
-        // 1) 主流增强 LRC：<mm:ss.xx>词  （绝对时间）
-        if (/<\d{1,2}:\d{2}(\.\d+)?>/.test(text)) {
-            const re = /<(\d{1,2}:\d{2}(?:\.\d+)?)>([^<]*)/g
-            const words: { text: string; timestamp: number }[] = []
-            let display = ''
-            let m: RegExpExecArray | null
-            while ((m = re.exec(text)) !== null) {
-                const sec = LrcRenderer.parseClock(m[1])
-                if (!isFinite(sec)) continue
-                display += m[2]
-                words.push({ text: m[2], timestamp: Math.round(sec * 1000) })
-            }
-            if (words.length > 0) return { text: display, words }
+        const re = /<(\d{1,2}:\d{2}(?:\.\d+)?)>([^<]*)/g
+        const words: { text: string; timestamp: number }[] = []
+        let display = ''
+        let m: RegExpExecArray | null
+        while ((m = re.exec(text)) !== null) {
+            const sec = LrcRenderer.parseClock(m[1])
+            if (!isFinite(sec)) continue
+            display += m[2]
+            words.push({ text: m[2], timestamp: Math.round(sec * 1000) })
         }
-        // 2) 兼容旧语法：{相对秒}词
-        const legacyRe = /\{(\d+(?:\.\d+)?)\}([^{<]+)/g
-        const words2: { text: string; timestamp: number }[] = []
-        let display2 = ''
-        let m2: RegExpExecArray | null
-        while ((m2 = legacyRe.exec(text)) !== null) {
-            const relSec = parseFloat(m2[1])
-            if (!isFinite(relSec)) continue
-            display2 += m2[2]
-            words2.push({ text: m2[2], timestamp: lineStartMs + relSec * 1000 })
-        }
-        if (words2.length > 0) return { text: display2, words: words2 }
+        if (words.length > 0) return { text: display, words }
         return null
     }
 
     /**
-     * 提取双语注释：优先用竖线 `原文 | 译文` 分隔；同时兼容旧语法 `<译文>`。
-     * 竖线两边都非空才视为双语，避免误判歌词中孤立的 `|`。
-     * `<...>` 内容若形如时间戳（如 `<00:12.167>`），视为逐字标记而非注释。
+     * 提取双语注释：用竖线 `原文 | 译文` 分隔。
+     * 竖线两边都非空才视为双语，避免误判歌词中孤立的 `|`；多个 `|` 取最后一个作分隔，保留原文中的 `|`。
+     * 逐字时间戳 `<mm:ss.xx>` 不在此处理，由 extractPreciseWords 解析。
      */
     private static extractAnnotation(text: string): { text: string; annotation?: string } {
-        const pipe = text.indexOf('|')
+        const pipe = text.lastIndexOf('|')
         if (pipe >= 0) {
             const before = text.slice(0, pipe).trim()
             const after = text.slice(pipe + 1).trim()
             if (before && after) {
                 return { text: before, annotation: after }
             }
-        }
-        // 兼容旧语法 <...>（内容不是时间戳时才视为注释；跳过逐字时间戳 <mm:ss>）
-        const re = /<([^>]+)>/g
-        let m: RegExpExecArray | null
-        while ((m = re.exec(text)) !== null) {
-            const inner = m[1].trim()
-            if (/^\d{1,2}:\d{2}/.test(inner)) continue
-            // 只移除这一处注释，保留逐字时间戳标记
-            const stripped = text.slice(0, m.index) + text.slice(m.index + m[0].length)
-            return { text: stripped.trim(), annotation: inner }
         }
         return { text }
     }
@@ -125,7 +100,7 @@ export default class LrcRenderer extends AbstractLyricsRenderer {
                     let text = cur.line.text.trim()
                     if (!text) continue
 
-                    // Extract bilingual annotation: `原文 | 译文`（兼容旧 `<>`）
+                    // Extract bilingual annotation: `原文 | 译文`
                     const extracted = LrcRenderer.extractAnnotation(text)
                     if (extracted.annotation) {
                         cur.line.annotation = extracted.annotation
@@ -133,8 +108,8 @@ export default class LrcRenderer extends AbstractLyricsRenderer {
                         text = extracted.text
                     }
 
-                    // Precise word timestamps: 主流 <mm:ss.xx>（绝对时间），兼容旧 {相对秒}
-                    const precise = LrcRenderer.extractPreciseWords(text, cur.line.timestamp || 0)
+                    // Precise word timestamps: 主流 <mm:ss.xx>（绝对时间）
+                    const precise = LrcRenderer.extractPreciseWords(text)
                     if (precise && precise.words.length > 0) {
                         // Strip markers from display text, keep only word text
                         cur.line.text = precise.text
@@ -143,7 +118,7 @@ export default class LrcRenderer extends AbstractLyricsRenderer {
                         // Fallback: auto-distribute timestamps across words
                         // Split: CJK/Hangul/Arabic/Devanagari/Thai/Tibetan individually,
                         // Latin/Cyrillic/Armenian/Georgian words, spaces preserved
-                        const words = text.match(/[\u0600-\u06ff\u0750-\u077f\u08a0-\u08ff\ufe70-\ufeff\u0900-\u097f\u0e00-\u0e7f\u0f00-\u0fff\u4e00-\u9fff\u3400-\u4dbf\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af\u3130-\u318f]|[a-zA-Z0-9\u0400-\u04ff\u0530-\u058f\u10a0-\u10ff]+|\s+/g)
+                        const words = text.match(WORD_SPLIT_REGEX)
                         if (!words || words.length === 0) continue
 
                         const start = cur.line.timestamp || 0
@@ -207,14 +182,14 @@ export default class LrcRenderer extends AbstractLyricsRenderer {
         for (const parts of this.chunk(lines, 7)) {
             const line = this.parseLrc(parts)
             if (line.text) {
-                // Extract bilingual annotation: `原文 | 译文`（兼容旧 `<>`）
+                // Extract bilingual annotation: `原文 | 译文`
                 const extracted = LrcRenderer.extractAnnotation(line.text)
                 if (extracted.annotation) {
                     line.annotation = extracted.annotation
                     line.text = extracted.text
                 }
-                // Precise word timestamps: 主流 <mm:ss.xx>（绝对时间），兼容旧 {相对秒}
-                const precise = LrcRenderer.extractPreciseWords(line.text, line.timestamp || 0)
+                // Precise word timestamps: 主流 <mm:ss.xx>（绝对时间）
+                const precise = LrcRenderer.extractPreciseWords(line.text)
                 if (precise && precise.words.length > 0) {
                     line.text = precise.text
                     line.words = precise.words

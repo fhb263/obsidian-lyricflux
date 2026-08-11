@@ -62,7 +62,6 @@ export default class LyricsMarkdownRender extends MarkdownRenderChild {
     public path: string
     private plugin: LyricsPlugin
     private lyricsRenderer: LyricsRenderer
-    private pauseHl: boolean = false
     private sentenceMode: boolean
 
     private autoScroll: boolean
@@ -141,66 +140,73 @@ export default class LyricsMarkdownRender extends MarkdownRenderChild {
             '.lyrics-line[data-time]',
         ) as NodeListOf<HTMLElement>
 
-        let hl = this.binarySearch(lyrics, Math.round(sec * 1000))
+        const hl = this.binarySearch(lyrics, Math.round(sec * 1000))
+        const hlChanged = hl !== this.currentHL
 
-        if (hl !== this.currentHL) {
-            if (this.player) {
-                if (
-                    this.sentenceMode &&
-                    !this.player.paused() &&
-                    this.currentHL != -1 &&
-                    !seek
-                ) {
-                    this.player.pause()
-                    this.pauseHl = true
-                }
+        if (hlChanged) {
+            // 逐句模式：句边界暂停（播放中才暂停；暂停后当前句仍高亮，修复主区/侧边栏不一致）
+            if (
+                this.player &&
+                this.sentenceMode &&
+                !this.player.paused() &&
+                this.currentHL != -1 &&
+                !seek
+            ) {
+                this.player.pause()
             }
             this.currentHL = hl
+            // 行变化时才做整表高亮 + 自动滚动（避免每 250ms 全表 class 重置 + 反复 smooth 滚动）
+            this.applyHighlight(lyrics, hl, sec)
+        } else if (this.karaoke && hl >= 0) {
+            // 同一句内：仅逐字高亮随时间推进
+            this.highlightWords(lyrics.item(hl), sec)
         }
 
+        // 状态通知：侧边栏为增量渲染（见 LyricsView.renderLyrics），此处每次 timeupdate 推送无性能问题
         this.emitState()
+    }
 
-        if (!this.pauseHl) {
-            // 对唱/合唱：同一时间戳对应多行歌词，全部作为当前行高亮
-            let hlStart = hl
-            let hlEnd = hl
-            if (hl >= 0) {
-                const t = lyrics.item(hl).dataset.time
-                while (hlStart > 0 && lyrics.item(hlStart - 1).dataset.time === t) hlStart--
-                while (hlEnd + 1 < lyrics.length && lyrics.item(hlEnd + 1).dataset.time === t) hlEnd++
+    /** 对唱/合唱整组高亮 + 过去/未来淡化 + 自动滚动（仅行变化时调用） */
+    private applyHighlight(lyrics: NodeListOf<HTMLElement>, hl: number, sec: number) {
+        // 对唱/合唱：同一时间戳对应多行歌词，全部作为当前行高亮
+        let hlStart = hl
+        let hlEnd = hl
+        if (hl >= 0) {
+            const t = lyrics.item(hl).dataset.time
+            while (hlStart > 0 && lyrics.item(hlStart - 1).dataset.time === t) hlStart--
+            while (hlEnd + 1 < lyrics.length && lyrics.item(hlEnd + 1).dataset.time === t) hlEnd++
+        }
+
+        //remove highlight and set past/future
+        lyrics.forEach((el, index) => {
+            el.removeClass('lyrics-highlighted')
+            el.removeClass('lyrics-line-past')
+            el.removeClass('lyrics-line-future')
+            if (index < hlStart) {
+                el.addClass('lyrics-line-past')
+            } else if (index > hlEnd) {
+                el.addClass('lyrics-line-future')
             }
+        })
 
-            //remove highlight and set past/future
-            lyrics.forEach((el, index) => {
-                el.removeClass('lyrics-highlighted')
-                el.removeClass('lyrics-line-past')
-                el.removeClass('lyrics-line-future')
-                if (index < hlStart) {
-                    el.addClass('lyrics-line-past')
-                } else if (index > hlEnd) {
-                    el.addClass('lyrics-line-future')
+        if (hl >= 0) {
+            // 高亮同一时间戳的所有行
+            for (let i = hlStart; i <= hlEnd; i++) {
+                const hlel = lyrics.item(i)
+                if (hlel && !hlel.hasClass('lyrics-highlighted')) {
+                    hlel.addClass('lyrics-highlighted')
                 }
-            })
-
-            if (hl >= 0) {
-                // 高亮同一时间戳的所有行
+            }
+            if (this.autoScroll) {
+                lyrics.item(hlStart).scrollIntoView({
+                    behavior: 'smooth',
+                    block: 'center',
+                })
+            }
+            // Karaoke: highlight words up to current time
+            if (this.karaoke) {
                 for (let i = hlStart; i <= hlEnd; i++) {
-                    const hlel = lyrics.item(i)
-                    if (hlel && !hlel.hasClass('lyrics-highlighted')) {
-                        hlel.addClass('lyrics-highlighted')
-                    }
-                }
-                if (this.autoScroll) {
-                    lyrics.item(hlStart).scrollIntoView({
-                        behavior: 'smooth',
-                        block: 'center',
-                    })
-                }
-                // Karaoke: highlight words up to current time
-                if (this.karaoke) {
-                    for (let i = hlStart; i <= hlEnd; i++) {
-                        this.highlightWords(lyrics.item(i), sec)
-                    }
+                    this.highlightWords(lyrics.item(i), sec)
                 }
             }
         }
@@ -567,7 +573,8 @@ export default class LyricsMarkdownRender extends MarkdownRenderChild {
                 props: {
                     src,
                     timeupdate: this.updateTimestamp,
-                    onPlay: () => { this.pauseHl = false },
+                    onPlay: () => { this.plugin.markPlayerActive(this.path); this.emitState() },
+                    onPause: () => { this.plugin.onRendererPaused(this.path) },
                     onended: () => { this.plugin.handleSongEnded(this) },
                 },
             })
@@ -616,7 +623,8 @@ export default class LyricsMarkdownRender extends MarkdownRenderChild {
         }
         this.plugin.unregisterRenderer(this.path)
         this.plugin.removeSettingsListener(this.onSettingsChanged)
-        this.plugin.updateLyricsState(null)
+        // 若本渲染器是当前状态源，交给插件复位到上一个播放源（而非直接清空，避免状态栏空态不复位）
+        this.plugin.onRendererUnloaded(this.path)
     }
 
     private effectiveLyricsContent: string = ''
@@ -628,6 +636,8 @@ export default class LyricsMarkdownRender extends MarkdownRenderChild {
     }
 
     public emitState() {
+        // 有歌在播时仅播放中的渲染器可发状态，避免查看 LRC 笔记抢占侧边栏导致闪烁
+        if (!this.plugin.isStateSource(this.path)) return
         const file = this.app.vault.getAbstractFileByPath(this.path)
         const cache = file instanceof TFile ? this.app.metadataCache.getFileCache(file) : null
         this.plugin.updateLyricsState({

@@ -27,6 +27,7 @@ const context = await esbuild.context({
     external: [
         'obsidian',
         'electron',
+        'react-native-fs', // jsmediatags 的可选 RN 读取器依赖，Obsidian 环境永不加载
         '@codemirror/autocomplete',
         '@codemirror/collab',
         '@codemirror/commands',

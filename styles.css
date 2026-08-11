@@ -172,7 +172,7 @@ If your plugin does not need CSS, delete this file.
 .lyrics-panel-word,
 .lyrics-panel-word-active {
     white-space: pre;
-    transition: color 0.12s ease;
+    transition: color 0.15s ease, text-shadow 0.15s ease, opacity 0.15s ease;
 }
 
 .lyrics-panel-word {
@@ -562,6 +562,7 @@ If your plugin does not need CSS, delete this file.
     border-radius: 6px;
     cursor: pointer;
     transition: background-color 0.15s;
+    position: relative;
 }
 
 .lyrics-songs-item:hover {
@@ -598,6 +599,19 @@ If your plugin does not need CSS, delete this file.
     display: block;
 }
 
+/* 无封面时的占位图：音乐图标居中 */
+.lyrics-songs-item-thumb-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+}
+
+.lyrics-songs-item-thumb-placeholder svg {
+    width: 16px;
+    height: 16px;
+}
+
 .lyrics-songs-item-info {
     min-width: 0;
     flex: 1;
@@ -626,15 +640,6 @@ If your plugin does not need CSS, delete this file.
 }
 
 /* === Reload button hover === */
-
-.lyrics-reload-btn svg {
-    transition: transform 0.3s ease;
-}
-
-.lyrics-reload-btn:hover svg {
-    transform: rotate(90deg);
-    color: var(--text-accent);
-}
 
 /* === Folder suggestion dropdown === */
 
@@ -683,13 +688,149 @@ If your plugin does not need CSS, delete this file.
     cursor: pointer;
     border-radius: 4px;
     text-align: left;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    /* 长文件夹路径换行完整显示，不再截断成省略号 */
+    white-space: normal;
+    word-break: break-all;
+    line-height: 1.4;
     transition: background 0.1s;
 }
 
 .lyrics-folder-suggestion-item:hover,
 .lyrics-folder-suggestion-active {
     background: var(--background-modifier-hover);
+}
+
+/* === 歌单编辑按钮（hover 显示） === */
+
+.lyrics-songs-edit-btn {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    cursor: pointer;
+    opacity: 0;
+    border-radius: 4px;
+    color: var(--text-muted);
+    background: var(--background-modifier-hover);
+    transition: opacity 0.15s;
+}
+.lyrics-songs-item:hover .lyrics-songs-edit-btn { opacity: 1; }
+.lyrics-songs-edit-btn:hover { color: var(--text-accent); }
+
+/* 标签编辑弹窗 */
+.lyrics-tag-loading { padding: 16px; color: var(--text-muted); }
+
+.lyrics-tag-cover-preview {
+    margin: 4px 0 12px;
+    min-height: 40px;
+}
+
+/* 无封面占位框：虚线边框居中提示，避免空白的「(未设置)」突兀 */
+.lyrics-tag-cover-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 64px;
+    border: 1px dashed var(--background-modifier-border);
+    border-radius: 8px;
+    background: var(--background-secondary);
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+}
+
+.lyrics-tag-cover-img {
+    max-width: 200px;
+    max-height: 200px;
+    object-fit: contain;
+    border-radius: 4px;
+    display: block;
+}
+
+.lyrics-tag-cover-input { display: none; }
+
+.lyrics-tag-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+/* === 设置页「关于」区块 === */
+
+.lyrics-about {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    background: var(--background-secondary);
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin: 8px 0 4px;
+}
+
+.lyrics-about-text {
+    min-width: 0;
+}
+
+.lyrics-about-title {
+    font-weight: 400;
+}
+
+.lyrics-about-desc {
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+    margin-top: 2px;
+}
+
+.lyrics-about-buttons {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.lyrics-about-btn {
+    padding: 6px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--background-modifier-border) !important;
+    background: var(--background-primary) !important;
+    color: var(--text-normal) !important;
+    cursor: pointer;
+    font-size: var(--font-ui-small);
+    white-space: nowrap;
+}
+
+.lyrics-about-btn:hover {
+    background: var(--background-modifier-hover) !important;
+}
+
+/* 爱发电按钮：始终主题高亮实底，不被 Obsidian 默认按钮样式覆盖 */
+.lyrics-about-btn-accent {
+    background: var(--text-accent) !important;
+    border-color: var(--text-accent) !important;
+    color: var(--text-on-accent) !important;
+}
+
+.lyrics-about-btn-accent:hover {
+    background: var(--text-accent-hover) !important;
+    color: var(--text-on-accent) !important;
+}
+
+/* 歌词区「获取歌词」按钮行（右下角） */
+.lyrics-tag-lyrics-footer {
+    display: flex;
+    justify-content: flex-end;
+}
+
+/* === 歌词 textarea（标签编辑弹窗，一键粘贴整段） === */
+.lyrics-tag-lyrics {
+    width: 100%;
+    min-height: 160px;
+    resize: vertical;
+    font-family: var(--font-monospace);
+    font-size: var(--font-ui-small);
+    margin-bottom: 12px;
 }
