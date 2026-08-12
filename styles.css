@@ -721,6 +721,372 @@ If your plugin does not need CSS, delete this file.
 .lyrics-songs-item:hover .lyrics-songs-edit-btn { opacity: 1; }
 .lyrics-songs-edit-btn:hover { color: var(--text-accent); }
 
+/* 歌单弹窗搜索框旁的下载按钮（v1.4.1） */
+.lyrics-song-popup-dl-btn {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    cursor: pointer;
+    border-radius: 4px;
+    color: var(--text-muted);
+    background: var(--background-modifier-hover);
+    transition: color 0.15s;
+}
+.lyrics-song-popup-dl-btn:hover { color: var(--color-green); }
+
+/* === 下载歌曲弹窗（v1.4.1） === */
+/* 单一搜索框 + 右侧搜索按钮 */
+.lyrics-download-search {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.lyrics-download-search-input {
+    flex: 1;
+    min-width: 0;
+    padding: 5px 8px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    background: var(--background-primary);
+    color: var(--text-normal);
+    font-family: var(--font-text);
+    font-size: var(--font-ui-small);
+    outline: none;
+    transition: border-color 0.15s;
+}
+
+.lyrics-download-search-input:focus {
+    border-color: var(--text-accent);
+}
+
+.lyrics-download-search-btn {
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+/* 下载进度条（v1.4.1）：percent 确定进度 / indeterminate 不定宽滑动动画 */
+.lyrics-download-progress {
+    margin-bottom: 8px;
+}
+.lyrics-download-progress-hidden { display: none; }
+
+.lyrics-download-progress-track {
+    height: 6px;
+    border-radius: 3px;
+    background: var(--background-modifier-border);
+    overflow: hidden;
+}
+
+.lyrics-download-progress-fill {
+    height: 100%;
+    width: 0;
+    border-radius: 3px;
+    background: var(--text-accent);
+    transition: width 0.2s ease;
+}
+
+.lyrics-download-progress-fill.lyrics-download-progress-indeterminate {
+    width: 40%;
+    animation: lyrics-progress-slide 1.2s ease-in-out infinite;
+}
+
+.lyrics-download-progress-text {
+    margin-top: 3px;
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+}
+
+@keyframes lyrics-progress-slide {
+    0% { margin-left: -40%; }
+    100% { margin-left: 100%; }
+}
+
+.lyrics-download-results {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    /* 固定高度：结果随输入实时增删也不改变布局高度，避免输入框被顶得上下跳动 */
+    height: min(320px, 45vh);
+    overflow-y: auto;
+}
+
+.lyrics-download-empty {
+    padding: 12px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+}
+
+.lyrics-download-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: var(--background-secondary);
+    border: 1px solid transparent;
+}
+
+.lyrics-download-item-best {
+    border-color: var(--color-green);
+}
+
+.lyrics-download-item-cover {
+    flex-shrink: 0;
+    width: 40px;
+    height: 40px;
+    border-radius: 4px;
+    overflow: hidden;
+    background: var(--background-modifier-hover);
+}
+.lyrics-download-item-cover-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+.lyrics-download-item-cover-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    font-size: 16px;
+}
+
+.lyrics-download-item-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.lyrics-download-item-name {
+    font-size: var(--font-ui-small);
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.lyrics-download-item-artist {
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.lyrics-download-item-meta {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+.lyrics-download-item-pill {
+    flex-shrink: 0;
+    padding: 0 6px;
+    border-radius: 10px;
+    background: var(--background-modifier-hover);
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+    line-height: 16px;
+    white-space: nowrap;
+}
+.lyrics-download-item-pill-vip {
+    background: var(--color-yellow);
+    color: var(--text-on-accent);
+    font-weight: 600;
+}
+
+.lyrics-download-item-tag {
+    flex-shrink: 0;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: var(--background-modifier-hover);
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+}
+
+.lyrics-download-item-best-tag {
+    flex-shrink: 0;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: var(--color-green);
+    color: var(--text-on-accent);
+    font-size: var(--font-ui-smaller);
+}
+
+.lyrics-download-item-btn {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    cursor: pointer;
+    border-radius: 4px;
+    color: var(--text-muted);
+    transition: color 0.15s;
+}
+.lyrics-download-item-btn:hover { color: var(--color-green); }
+.lyrics-download-item-btn-loading { opacity: 0.5; pointer-events: none; }
+/* 试听按钮（v1.4.1）：hover 蓝色区分于下载的绿色；播放中高亮（主题强调色底，文字随主题反白） */
+.lyrics-download-item-preview-btn:hover { color: var(--color-blue); }
+.lyrics-download-item-btn-previewing {
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+    border-radius: 4px;
+}
+
+/* 全局下载中：禁用所有行下载按钮（视觉 + 交互，防误点其他行） */
+.lyrics-download-downloading .lyrics-download-item-btn {
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+/* 下载成功按钮（✓）：绿色，保留弹窗可继续下载 */
+.lyrics-download-item-btn-done {
+    color: var(--color-green);
+    opacity: 1;
+    pointer-events: none;
+}
+
+/* 推荐歌单（v1.4.2）：首屏卡片 + 歌单视图返回头 */
+.lyrics-download-recommend-btn {
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+.lyrics-download-playlist-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 2px 6px;
+}
+
+.lyrics-download-playlist-back {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    cursor: pointer;
+    border-radius: 4px;
+    color: var(--text-muted);
+    transition: color 0.15s;
+}
+.lyrics-download-playlist-back:hover { color: var(--text-accent); }
+
+.lyrics-download-playlist-head-title {
+    flex: 1;
+    min-width: 0;
+    font-size: var(--font-ui-small);
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.lyrics-download-playlist-refresh {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    cursor: pointer;
+    border-radius: 4px;
+    color: var(--text-muted);
+    transition: color 0.15s;
+}
+.lyrics-download-playlist-refresh:hover { color: var(--text-accent); }
+
+/* 来源胶囊行（v1.4.2 多源切换）：四个平台胶囊可点击，选中态高亮 */
+.lyrics-download-playlist-sources {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    padding: 0 2px 8px;
+}
+
+.lyrics-download-playlist-source {
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+.lyrics-download-playlist-source:hover {
+    background: var(--background-modifier-hover);
+}
+
+.lyrics-download-item-tag-active {
+    background: var(--text-accent);
+    color: var(--text-on-accent);
+    font-weight: 600;
+}
+.lyrics-download-item-tag-active:hover {
+    background: var(--text-accent);
+    color: var(--text-on-accent);
+}
+
+.lyrics-download-playlist-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: var(--background-secondary);
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+.lyrics-download-playlist-card:hover {
+    background: var(--background-modifier-hover);
+    border-color: var(--background-modifier-border-hover);
+}
+
+.lyrics-download-playlist-cover {
+    flex-shrink: 0;
+    width: 44px;
+    height: 44px;
+    border-radius: 4px;
+    overflow: hidden;
+    background: var(--background-modifier-hover);
+}
+.lyrics-download-playlist-cover-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.lyrics-download-playlist-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.lyrics-download-playlist-name {
+    font-size: var(--font-ui-small);
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.lyrics-download-playlist-meta {
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+}
+
 /* 标签编辑弹窗 */
 .lyrics-tag-loading { padding: 16px; color: var(--text-muted); }
 
@@ -758,6 +1124,25 @@ If your plugin does not need CSS, delete this file.
     gap: 8px;
     margin-top: 12px;
 }
+
+/* 删除文件按钮（v1.4.1）：垃圾桶图标 + 警告色，二次点击确认变红实底 */
+.lyrics-tag-delete {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--text-error) !important;
+    border-color: var(--text-error) !important;
+    background: transparent !important;
+}
+.lyrics-tag-delete:hover {
+    background: var(--background-modifier-hover) !important;
+}
+.lyrics-tag-delete-armed {
+    background: var(--color-red) !important;
+    border-color: var(--color-red) !important;
+    color: var(--text-on-accent) !important;
+}
+.lyrics-tag-delete-icon { display: inline-flex; }
 
 /* === 设置页「关于」区块 === */
 
@@ -819,10 +1204,90 @@ If your plugin does not need CSS, delete this file.
     color: var(--text-on-accent) !important;
 }
 
-/* 歌词区「获取歌词」按钮行（右下角） */
-.lyrics-tag-lyrics-footer {
+/* 多平台歌词候选列表（v1.4.1：获取歌词后展示，点击某条导入） */
+.lyrics-tag-lyric-candidates {
+    margin-top: 8px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    max-height: 220px;
+    overflow-y: auto;
+}
+.lyrics-tag-lyric-candidates-hidden {
+    display: none;
+}
+.lyrics-tag-lyric-candidates-title {
     display: flex;
-    justify-content: flex-end;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 10px;
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+.lyrics-tag-lyric-candidates-close {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+    padding: 0 4px;
+}
+.lyrics-tag-lyric-candidates-close:hover {
+    color: var(--text-normal);
+}
+.lyrics-tag-lyric-candidate {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    cursor: pointer;
+}
+.lyrics-tag-lyric-candidate:hover {
+    background-color: var(--background-modifier-hover);
+}
+.lyrics-tag-lyric-candidate-loading {
+    opacity: 0.6;
+    pointer-events: none;
+}
+.lyrics-tag-lyric-source {
+    flex-shrink: 0;
+    font-size: var(--font-ui-smaller);
+    padding: 1px 6px;
+    border-radius: 4px;
+    background-color: var(--background-modifier-border);
+    color: var(--text-muted);
+}
+.lyrics-tag-lyric-candidate-meta {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* 歌词翻译进度条（v1.4.1：翻译中显示，逐行进度） */
+.lyrics-tag-translate-progress {
+    margin-top: 8px;
+    margin-bottom: 4px;
+}
+.lyrics-tag-translate-progress-hidden {
+    display: none;
+}
+.lyrics-tag-translate-progress-track {
+    height: 6px;
+    background-color: var(--background-modifier-border);
+    border-radius: 3px;
+    overflow: hidden;
+}
+.lyrics-tag-translate-progress-fill {
+    height: 100%;
+    width: 0%;
+    background-color: var(--interactive-accent);
+    border-radius: 3px;
+    transition: width 0.2s ease;
+}
+.lyrics-tag-translate-progress-text {
+    margin-top: 2px;
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
 }
 
 /* === 歌词 textarea（标签编辑弹窗，一键粘贴整段） === */
@@ -833,4 +1298,102 @@ If your plugin does not need CSS, delete this file.
     font-family: var(--font-monospace);
     font-size: var(--font-ui-small);
     margin-bottom: 12px;
+}
+
+/* === 多平台 Cookie 折叠面板（v1.4.1） === */
+.lyrics-cookie-row {
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    margin: 4px 0;
+    overflow: hidden;
+}
+.lyrics-cookie-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    cursor: pointer;
+    user-select: none;
+}
+.lyrics-cookie-header:hover { background: var(--background-modifier-hover); }
+.lyrics-cookie-checkbox { flex-shrink: 0; margin: 0; cursor: pointer; }
+.lyrics-cookie-row-disabled { opacity: 0.45; }
+.lyrics-cookie-name { font-weight: 500; }
+.lyrics-cookie-status {
+    margin-left: auto;
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+}
+.lyrics-cookie-status-on { color: var(--color-green); }
+.lyrics-cookie-chevron {
+    color: var(--text-muted);
+    transition: transform 0.15s;
+}
+.lyrics-cookie-row-expanded .lyrics-cookie-chevron { transform: rotate(90deg); }
+.lyrics-cookie-body {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 0 10px 10px;
+}
+.lyrics-cookie-body.lyrics-cookie-collapsed { display: none; }
+.lyrics-cookie-input {
+    width: 100%;
+    min-height: 64px;
+    font-family: var(--font-monospace);
+    font-size: var(--font-ui-smaller);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    background: var(--background-primary);
+    color: var(--text-normal);
+    padding: 6px 8px;
+    resize: vertical;
+}
+.lyrics-cookie-hint {
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+    line-height: 1.5;
+}
+.lyrics-cookie-body-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+}
+.lyrics-cookie-test-result {
+    font-size: var(--font-ui-smaller);
+    max-width: 60%;
+    overflow-wrap: anywhere;
+}
+.lyrics-cookie-test-ok { color: var(--color-green); }
+.lyrics-cookie-test-bad { color: var(--color-red); }
+
+/* 设置页「清除缓存」按钮（v1.4.1）：红底白字，强调破坏性操作 */
+.lyrics-clear-cache-btn {
+    background: var(--color-red);
+    color: #fff;
+    font-weight: 600;
+}
+.lyrics-clear-cache-btn:hover {
+    background: var(--color-red);
+    color: #fff;
+    opacity: 0.85;
+}
+
+/* 翻译服务商单选行（v1.4.1）：行首 radio 勾选 + 行名，样式对齐「下载」分组 cookie 行 */
+.lyrics-translate-providers {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 6px 0;
+}
+.lyrics-translate-provider-active {
+    border-color: var(--interactive-accent);
+    background-color: var(--background-modifier-hover);
+}
+.lyrics-translate-provider-off {
+    opacity: 0.45;
+}
+.lyrics-translate-provider-name {
+    font-weight: 600;
 }

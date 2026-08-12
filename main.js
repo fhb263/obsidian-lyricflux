@@ -11852,234 +11852,171 @@ var Mp3PlayerRender = class {
 };
 
 // src/Settings.ts
-var import_obsidian6 = require("obsidian");
-var DEFAULT_SETTINGS = {
-  autoScroll: true,
-  sentenceMode: false,
-  onlyShowMarked: false,
-  karaoke: false,
-  lyricsFolder: "",
-  audioFolder: "",
-  songSource: "notes",
-  playMode: "off",
-  flashSwitch: false,
-  playbackRate: 1,
-  volume: 75
-};
-var LyricsSettings = class extends import_obsidian6.PluginSettingTab {
-  constructor(plugin, settings) {
-    super(plugin.app, plugin);
-    this.plugin = plugin;
-    this.settings = settings;
-  }
-  async updateSettings(newSettings) {
-    this.settings = { ...this.settings, ...newSettings };
-    await this.plugin.saveData(this.settings);
-  }
-  display() {
-    const { containerEl } = this;
-    containerEl.empty();
-    new import_obsidian6.Setting(containerEl).setName("\u57FA\u672C\u8BBE\u7F6E").setHeading();
-    new import_obsidian6.Setting(containerEl).setName("\u81EA\u52A8\u6EDA\u52A8").setDesc("\u9ED8\u8BA4\u5173\u95ED\uFF0CLRC\u7B14\u8BB0\u9875\u968F\u64AD\u653E\u8FDB\u5EA6\u6EDA\u52A8").addToggle((toggle) => {
-      toggle.setValue(this.settings.autoScroll);
-      toggle.onChange((value) => {
-        this.updateSettings({ autoScroll: value });
-      });
-    });
-    new import_obsidian6.Setting(containerEl).setName("\u9010\u53E5\u6A21\u5F0F").setDesc("\u9ED8\u8BA4\u5173\u95ED\uFF0C\u6BCF\u53E5\u7ED3\u675F\u540E\u81EA\u52A8\u6682\u505C\uFF0C\u9002\u5408\u8DDF\u8BFB").addToggle((toggle) => {
-      toggle.setValue(this.settings.sentenceMode);
-      toggle.onChange((value) => {
-        this.updateSettings({ sentenceMode: value });
-      });
-    });
-    new import_obsidian6.Setting(containerEl).setName("\u9010\u5B57\u9AD8\u4EAE").setDesc("\u9ED8\u8BA4\u5173\u95ED\uFF0C\u6BCF\u53E5\u5747\u5206\u9010\u5B57\u9AD8\u4EAE\u3002\u652F\u6301\u7CBE\u786E\u9010\u5B57\u9AD8\u4EAE\uFF1A\u5982<00:12.167>\u6CA7<00:13.000>\u6D77").addToggle((toggle) => {
-      toggle.setValue(this.settings.karaoke);
-      toggle.onChange((value) => {
-        this.updateSettings({ karaoke: value });
-      });
-    });
-    new import_obsidian6.Setting(containerEl).setName("\u540E\u53F0\u64AD\u653E").setDesc("\u9ED8\u8BA4\u5173\u95ED\uFF0C\u5F00\u542F\u540E\u6700\u5C0F\u5316\u53EF\u7EE7\u7EED\u64AD\u653E\uFF0C\u4F46\u6CE8\u610F\u5728LRC\u7B14\u8BB0\u8DEF\u5F84\u4E0B\u5207\u6B4C\u65F6\u4F1A\u95EA\u73B0\u5F39\u7A97").addToggle((toggle) => {
-      toggle.setValue(this.settings.flashSwitch);
-      toggle.onChange((value) => {
-        this.updateSettings({ flashSwitch: value });
-      });
-    });
-    new import_obsidian6.Setting(containerEl).setName("\u6B4C\u5355").setHeading();
-    new import_obsidian6.Setting(containerEl).setName("\u6B4C\u5355\u6765\u6E90").setDesc("\u9009\u62E9\u6B4C\u5355\u6570\u636E\u6765\u6E90\uFF1ALRC \u7B14\u8BB0\u8DEF\u5F84 \u6216 \u97F3\u9891\u6587\u4EF6\u8DEF\u5F84").addDropdown((dropdown) => {
-      dropdown.addOption("notes", "LRC \u7B14\u8BB0\u8DEF\u5F84").addOption("audio", "\u97F3\u9891\u6587\u4EF6\u8DEF\u5F84").setValue(this.settings.songSource).onChange(async (value) => {
-        await this.updateSettings({ songSource: value });
-        await this.plugin.stopAllPlayback();
-        await this.plugin.scanLyricSongs();
-        this.display();
-      });
-    });
-    if (this.settings.songSource === "notes") {
-      this.createFolderPicker(containerEl, {
-        name: "LRC\u7B14\u8BB0\u6587\u4EF6\u5939",
-        desc: "\u6307\u5B9A\u7B14\u8BB0\u8DEF\u5F84\uFF0C\u7528\u4E8E\u5728\u4FA7\u8FB9\u680F\u6E32\u67D3\u6B4C\u5355\u5217\u8868",
-        placeholder: "\u8F93\u5165\u6587\u4EF6\u5939/",
-        value: this.settings.lyricsFolder,
-        onChange: (folder) => {
-          this.updateSettings({ lyricsFolder: folder });
-        }
-      });
-    } else {
-      this.createFolderPicker(containerEl, {
-        name: "\u97F3\u9891\u6587\u4EF6\u5939",
-        desc: "\u6307\u5B9A\u97F3\u9891\u8DEF\u5F84\uFF0C\u7528\u4E8E\u5728\u4FA7\u8FB9\u680F\u6E32\u67D3\u6B4C\u5355\u5217\u8868",
-        placeholder: "\u4F8B\u5982\uFF1AMusic",
-        value: this.settings.audioFolder,
-        onChange: (folder) => {
-          this.updateSettings({ audioFolder: folder });
-        }
-      });
+var import_obsidian8 = require("obsidian");
+
+// src/downloadManager.ts
+var import_obsidian7 = require("obsidian");
+
+// src/onlineLyrics.ts
+var UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+var HEADERS = { "User-Agent": UA, Referer: "https://music.163.com" };
+var TIMEOUT_MS = 8e3;
+async function fetchJson(url) {
+  try {
+    const r = window.require;
+    if (typeof r === "function") {
+      const https = r("https");
+      if (https && typeof https.request === "function") {
+        return await httpsGetJson(https, url);
+      }
     }
-    new import_obsidian6.Setting(containerEl).setName("\u5173\u4E8E").setHeading();
-    const about = containerEl.createDiv({ cls: "lyrics-about" });
-    const aboutText = about.createDiv({ cls: "lyrics-about-text" });
-    aboutText.createDiv({ cls: "lyrics-about-title", text: "\u652F\u6301\u4F5C\u8005" });
-    aboutText.createDiv({ cls: "lyrics-about-desc", text: "\u5982\u679C\u4F60\u89C9\u5F97 LyricFlux \u6709\u4EF7\u503C\uFF0C\u8BF7\u8003\u8651\u652F\u6301\u5B83\u7684\u5F00\u53D1\uFF01" });
-    const aboutBtns = about.createDiv({ cls: "lyrics-about-buttons" });
-    const githubBtn = aboutBtns.createEl("button", { cls: "lyrics-about-btn", text: "Github" });
-    const afdianBtn = aboutBtns.createEl("button", { cls: "lyrics-about-btn lyrics-about-btn-accent", text: "\u7231\u53D1\u7535" });
-    githubBtn.addEventListener("click", () => window.open("https://github.com/fhb263/obsidian-lyricflux", "_blank"));
-    afdianBtn.addEventListener("click", () => window.open("https://ifdian.net/a/fhb263", "_blank"));
+  } catch (e) {
   }
-  /**
-   * 创建带手动刷新按钮 + 搜索下拉的文件夹选择器（LRC 笔记文件夹 / 音频文件夹共用）。
-   * suggestAudioFiles=true 时建议列表同时含音频文件（选文件取其所在文件夹），供音频文件夹按歌曲名搜索。
-   * 选择或输入后调用 onChange 更新对应设置，并重扫歌单。
-   */
-  createFolderPicker(containerEl, opts) {
-    const setting = new import_obsidian6.Setting(containerEl).setName(opts.name).setDesc(opts.desc);
-    setting.addButton((btn) => {
-      btn.setClass("lyrics-reload-btn");
-      btn.setIcon("refresh-cw").setTooltip("\u5237\u65B0\u6B4C\u5355\u5217\u8868").onClick(async () => {
-        btn.setDisabled(true);
-        btn.setIcon("loader");
-        await this.plugin.scanLyricSongs();
-        btn.setIcon("check");
-        setTimeout(() => {
-          btn.setIcon("refresh-cw");
-          btn.setDisabled(false);
-        }, 1e3);
-        new import_obsidian6.Notice(`\u6B4C\u5355\u5DF2\u5237\u65B0\uFF0C\u5171 ${this.plugin.getSongList().length} \u9996\u6B4C\u66F2`);
-      });
-    });
-    const inputEl = setting.controlEl.createDiv({ cls: "lyrics-folder-input-wrap" });
-    const textInput = inputEl.createEl("input", {
-      cls: "lyrics-folder-input",
-      attr: {
-        type: "text",
-        placeholder: opts.placeholder,
-        value: opts.value
-      }
-    });
-    const suggestionsEl = inputEl.createDiv({ cls: "lyrics-folder-suggestions" });
-    suggestionsEl.style.display = "none";
-    const getAllFolders = () => {
-      const folders = /* @__PURE__ */ new Set();
-      for (const file of this.app.vault.getAllLoadedFiles()) {
-        if (file instanceof import_obsidian6.TFolder) {
-          folders.add(file.path);
-        }
-      }
-      return Array.from(folders).sort();
-    };
-    const allFolders = getAllFolders();
-    const applyFolder = (folder) => {
-      textInput.value = folder;
-      opts.onChange(folder);
-      this.plugin.scanLyricSongs();
-      suggestionsEl.style.display = "none";
-    };
-    const showSuggestions = (query) => {
-      suggestionsEl.empty();
-      const lowerQuery = query.toLowerCase();
-      const filtered = (query ? allFolders.filter((f) => f.toLowerCase().includes(lowerQuery)) : allFolders).slice(0, 20);
-      if (filtered.length === 0) {
-        suggestionsEl.style.display = "none";
-        return;
-      }
-      renderSuggestions(filtered);
-      suggestionsEl.style.display = "block";
-    };
-    let activeIndex = -1;
-    const renderSuggestions = (folders) => {
-      suggestionsEl.empty();
-      activeIndex = -1;
-      folders.forEach((folder, index) => {
-        const item = suggestionsEl.createDiv({ cls: "lyrics-folder-suggestion-item" });
-        item.setText(folder);
-        item.addEventListener("click", () => applyFolder(folder));
-        item.addEventListener("mouseenter", () => {
-          activeIndex = index;
-          updateActive();
+  return fetchJsonViaFetch(url);
+}
+function httpsGetJson(https, url) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(url);
+    const req = https.request(
+      {
+        hostname: u.hostname,
+        path: u.pathname + u.search,
+        method: "GET",
+        headers: HEADERS
+      },
+      (res) => {
+        let body = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk2) => {
+          body += chunk2;
         });
-      });
-      const updateActive = () => {
-        suggestionsEl.querySelectorAll(".lyrics-folder-suggestion-item").forEach((el, i) => {
-          el.classList.toggle("lyrics-folder-suggestion-active", i === activeIndex);
+        res.on("end", () => {
+          try {
+            resolve(JSON.parse(body));
+          } catch (e) {
+            reject(new Error("\u54CD\u5E94\u89E3\u6790\u5931\u8D25"));
+          }
         });
-      };
-      textInput.onkeydown = (e) => {
-        var _a, _b;
-        const items = suggestionsEl.querySelectorAll(".lyrics-folder-suggestion-item");
-        if (!items.length)
-          return;
-        if (e.key === "ArrowDown") {
-          e.preventDefault();
-          activeIndex = Math.min(activeIndex + 1, items.length - 1);
-          updateActive();
-          (_a = items[activeIndex]) == null ? void 0 : _a.scrollIntoView({ block: "nearest" });
-        } else if (e.key === "ArrowUp") {
-          e.preventDefault();
-          activeIndex = Math.max(activeIndex - 1, 0);
-          updateActive();
-          (_b = items[activeIndex]) == null ? void 0 : _b.scrollIntoView({ block: "nearest" });
-        } else if (e.key === "Enter" && activeIndex >= 0) {
-          e.preventDefault();
-          applyFolder(folders[activeIndex]);
-        } else if (e.key === "Escape") {
-          suggestionsEl.style.display = "none";
-          textInput.blur();
-        }
-      };
-    };
-    textInput.addEventListener("input", () => {
-      showSuggestions(textInput.value);
-    });
-    textInput.addEventListener("focus", () => {
-      showSuggestions(textInput.value);
-    });
-    const onBlur = () => {
-      setTimeout(() => {
-        suggestionsEl.style.display = "none";
-      }, 200);
-    };
-    textInput.addEventListener("blur", onBlur);
-    textInput.addEventListener("change", () => {
-      applyFolder(textInput.value);
-    });
+      }
+    );
+    req.setTimeout(TIMEOUT_MS, () => req.destroy(new Error("\u8BF7\u6C42\u8D85\u65F6")));
+    req.on("error", reject);
+    req.end();
+  });
+}
+async function fetchJsonViaFetch(url) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok)
+      throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  } finally {
+    clearTimeout(timer);
   }
-  getSettings() {
-    return this.settings;
+}
+async function searchSong(query) {
+  var _a;
+  const url = `https://music.163.com/api/cloudsearch/pc?s=${encodeURIComponent(query)}&type=1&limit=30`;
+  const data = await fetchJson(url);
+  const songs = (_a = data.result) == null ? void 0 : _a.songs;
+  if (!Array.isArray(songs))
+    return [];
+  return songs.map((s) => {
+    const raw = s;
+    let size;
+    let bitrate;
+    if (raw.l && typeof raw.l.size === "number" && raw.l.size > 0) {
+      size = raw.l.size;
+      if (typeof raw.l.br === "number")
+        bitrate = Math.round(raw.l.br / 1e3);
+    }
+    return {
+      id: Number(raw.id) || 0,
+      name: typeof raw.name === "string" ? raw.name : "",
+      artists: Array.isArray(raw.ar) ? raw.ar.map((a) => typeof a.name === "string" ? a.name : "") : [],
+      album: raw.al && typeof raw.al.name === "string" ? raw.al.name : void 0,
+      coverUrl: raw.al && typeof raw.al.picUrl === "string" ? raw.al.picUrl : void 0,
+      fee: typeof raw.fee === "number" ? raw.fee : void 0,
+      duration: typeof raw.dt === "number" && raw.dt > 0 ? Math.round(raw.dt / 1e3) : void 0,
+      size,
+      bitrate
+    };
+  });
+}
+async function downloadImage(url) {
+  const safeUrl = url.replace(/^http:\/\//, "https://");
+  try {
+    const r = window.require;
+    if (typeof r === "function") {
+      const https = r("https");
+      if (https && typeof https.request === "function") {
+        return await httpsGetBinary(https, safeUrl);
+      }
+    }
+  } catch (e) {
   }
-};
-
-// src/main.ts
-var import_obsidian11 = require("obsidian");
-
-// src/shared.ts
-var LYRICS_VIEW_TYPE = "lyrics-sidebar";
-var PLAY_MODES = ["off", "single", "sequential", "shuffle"];
-var SPEED_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2];
-var VOLUME_OPTIONS = [0, 25, 50, 75, 100];
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  try {
+    const res = await fetch(safeUrl, { signal: controller.signal });
+    if (!res.ok)
+      return null;
+    const buf = await res.arrayBuffer();
+    const ctype = res.headers.get("content-type") || "";
+    if (ctype && !ctype.startsWith("image/"))
+      return null;
+    return { mime: ctype.startsWith("image/") ? ctype : "image/jpeg", data: new Uint8Array(buf) };
+  } catch (e) {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+function httpsGetBinary(https, url) {
+  return new Promise((resolve) => {
+    const u = new URL(url);
+    const req = https.request(
+      {
+        hostname: u.hostname,
+        path: u.pathname + u.search,
+        method: "GET",
+        headers: { "User-Agent": UA }
+      },
+      (res) => {
+        const chunks = [];
+        res.on("data", (c) => chunks.push(c));
+        res.on("end", () => {
+          const ctype = res.headers["content-type"] || "";
+          const buf = Buffer.concat(chunks);
+          if (!buf.length || ctype && !ctype.startsWith("image/")) {
+            resolve(null);
+            return;
+          }
+          resolve({ mime: ctype.startsWith("image/") ? ctype : "image/jpeg", data: new Uint8Array(buf) });
+        });
+      }
+    );
+    req.setTimeout(TIMEOUT_MS, () => req.destroy());
+    req.on("error", () => resolve(null));
+    req.end();
+  });
+}
+async function fetchLyric(songId) {
+  var _a;
+  const url = `https://music.163.com/api/song/lyric?id=${songId}&lv=1&kv=1&tv=-1`;
+  const data = await fetchJson(url);
+  if (data.nolyric)
+    return null;
+  const lyric = (_a = data.lrc) == null ? void 0 : _a.lyric;
+  return typeof lyric === "string" && lyric.trim() ? lyric : null;
+}
 
 // src/tags.ts
 var NodeID3 = __toESM(require_node_id3());
 var jsmediatags = __toESM(require_jsmediatags());
-var import_obsidian7 = require("obsidian");
+var import_obsidian6 = require("obsidian");
 function isWinAbsolute(p) {
   return p.length >= 3 && p.charCodeAt(1) === 58 && (p.charCodeAt(2) === 92 || p.charCodeAt(2) === 47);
 }
@@ -12089,7 +12026,7 @@ function isMp3Path(p) {
 async function resolveAudioSource(app, notePath) {
   var _a, _b, _c;
   const note = app.vault.getAbstractFileByPath(notePath);
-  if (!(note instanceof import_obsidian7.TFile))
+  if (!(note instanceof import_obsidian6.TFile))
     return null;
   let content = "";
   try {
@@ -12109,14 +12046,14 @@ async function resolveAudioSource(app, notePath) {
     if (!isMp3Path(name))
       return null;
     const file = app.metadataCache.getFirstLinkpathDest(name, notePath);
-    return file instanceof import_obsidian7.TFile ? { type: "vault", file } : null;
+    return file instanceof import_obsidian6.TFile ? { type: "vault", file } : null;
   }
   if (isWinAbsolute(raw)) {
     return isMp3Path(raw) ? { type: "external", path: raw } : null;
   }
   if (isMp3Path(raw)) {
     const file = app.vault.getAbstractFileByPath(raw);
-    return file instanceof import_obsidian7.TFile ? { type: "vault", file } : null;
+    return file instanceof import_obsidian6.TFile ? { type: "vault", file } : null;
   }
   return null;
 }
@@ -12184,6 +12121,21 @@ async function readMp3Tags(app, source) {
   const buf = await readFileBuffer(app, source);
   return buf ? parseTags(buf) : null;
 }
+async function getAudioFileSize(app, source) {
+  try {
+    if (source.type === "vault" && source.file) {
+      const stat = await app.vault.adapter.stat(source.file.path);
+      return typeof (stat == null ? void 0 : stat.size) === "number" ? stat.size : null;
+    }
+    if (source.type === "external" && source.path) {
+      const fs = window.require("fs");
+      const stat = await fs.promises.stat(source.path);
+      return typeof (stat == null ? void 0 : stat.size) === "number" ? stat.size : null;
+    }
+  } catch (e) {
+  }
+  return null;
+}
 async function readMp3TagHead(app, source) {
   try {
     const fs = window.require("fs");
@@ -12216,11 +12168,7 @@ async function readMp3TagHead(app, source) {
     return null;
   }
 }
-async function writeMp3Tags(app, source, tags) {
-  const buf = await readFileBuffer(app, source);
-  if (!buf || buf.byteLength === 0)
-    return false;
-  const original = new Uint8Array(buf);
+function buildTagPatch(tags) {
   const patch = {};
   if (tags.title !== void 0)
     patch.title = tags.title;
@@ -12237,6 +12185,22 @@ async function writeMp3Tags(app, source, tags) {
   if (tags.cover !== void 0) {
     patch.image = tags.cover ? { mime: tags.cover.mime, type: { id: 3 }, description: "", imageBuffer: Buffer.from(tags.cover.data) } : void 0;
   }
+  return patch;
+}
+function embedTagsIntoBytes(bytes, tags) {
+  try {
+    const updated = NodeID3.update(buildTagPatch(tags), Buffer.from(bytes));
+    return updated instanceof Uint8Array ? updated : null;
+  } catch (e) {
+    return null;
+  }
+}
+async function writeMp3Tags(app, source, tags) {
+  const buf = await readFileBuffer(app, source);
+  if (!buf || buf.byteLength === 0)
+    return false;
+  const original = new Uint8Array(buf);
+  const patch = buildTagPatch(tags);
   try {
     const updated = NodeID3.update(patch, Buffer.from(original));
     if (!(updated instanceof Uint8Array))
@@ -12326,6 +12290,212 @@ async function readGenericTags(bytes) {
   });
 }
 
+// src/downloadUtils.ts
+function sanitizeFilename(name) {
+  const cleaned = name.replace(/[\\/:*?"<>|\x00-\x1f]/g, "_").trim();
+  return cleaned || "Unknown";
+}
+function buildSongFilename(artist, title, ext = "mp3") {
+  const a = sanitizeFilename(artist || "Unknown");
+  const n = sanitizeFilename(title || "Unknown");
+  const e = (ext || "mp3").replace(/^\./, "") || "mp3";
+  return `${a} - ${n}.${e}`;
+}
+function songSimilarityScore(keyword, name, artist) {
+  const kw = keyword.toLowerCase().trim();
+  const n = name.toLowerCase().trim();
+  const a = artist.toLowerCase().trim();
+  if (!n)
+    return -1;
+  const tokens = kw.split(/\s+/).filter(Boolean);
+  let score = 0;
+  if (n === kw)
+    score += 80;
+  else if (kw.includes(n))
+    score += 50;
+  else if (n.includes(kw))
+    score += 40;
+  for (const t of tokens) {
+    if (n === t)
+      score += 25;
+    else if (n.includes(t))
+      score += 12;
+    if (a.includes(t))
+      score += 30;
+    else {
+      const ct = t.replace(/[.、，,·\-—\s]+$/g, "");
+      if (ct && a.includes(ct))
+        score += 22;
+    }
+  }
+  score -= n.length / 10;
+  return score;
+}
+function isNeteaseDownloadable(fee) {
+  return !(fee && fee > 0);
+}
+function formatDuration(seconds) {
+  if (seconds === void 0 || !Number.isFinite(seconds) || seconds < 0)
+    return "";
+  const total = Math.round(seconds);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor(total % 3600 / 60);
+  const s = total % 60;
+  const ss = String(s).padStart(2, "0");
+  if (h > 0)
+    return `${h}:${String(m).padStart(2, "0")}:${ss}`;
+  return `${m}:${ss}`;
+}
+
+// src/translate.ts
+function buildGoogleTranslateUrl(text, target = "zh-CN") {
+  const params = { client: "gtx", sl: "auto", tl: target, dt: "t", q: text };
+  const qs = Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
+  return `https://translate.googleapis.com/translate_a/single?${qs}`;
+}
+function parseGoogleTranslateResponse(raw) {
+  try {
+    const data = JSON.parse(raw);
+    const segs = data == null ? void 0 : data[0];
+    if (!Array.isArray(segs))
+      return null;
+    const parts = [];
+    for (const seg of segs) {
+      const t = seg == null ? void 0 : seg[0];
+      if (typeof t === "string" && t)
+        parts.push(t);
+    }
+    return parts.length > 0 ? parts.join("") : null;
+  } catch (e) {
+    return null;
+  }
+}
+function buildMyMemoryUrl(text, target = "zh-CN", source = "auto") {
+  const src = source && source !== "auto" ? source : target === "zh-CN" ? "en" : "zh-CN";
+  const params = { q: text, langpair: `${src}|${target}` };
+  const qs = Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
+  return `https://api.mymemory.translated.net/get?${qs}`;
+}
+function parseMyMemoryResponse(raw) {
+  var _a;
+  try {
+    const data = JSON.parse(raw);
+    const t = (_a = data == null ? void 0 : data.responseData) == null ? void 0 : _a.translatedText;
+    return typeof t === "string" && t.trim() ? t : null;
+  } catch (e) {
+    return null;
+  }
+}
+var YD_LANGS = {
+  "zh-CN": "zh-CHS",
+  "zh-TW": "zh-CHT",
+  en: "en",
+  ja: "ja",
+  ko: "ko"
+};
+var BD_LANGS = {
+  "zh-CN": "zh",
+  en: "en",
+  ja: "jp",
+  ko: "kor"
+};
+function buildBaiduTranslateRequest(text, target = "zh-CN") {
+  var _a;
+  const to = (_a = BD_LANGS[target]) != null ? _a : target;
+  const body = `kw=${encodeURIComponent(text)}`;
+  return { url: "https://fanyi.baidu.com/sug", body };
+}
+function parseBaiduTranslateResponse(raw) {
+  var _a, _b, _c;
+  try {
+    const data = JSON.parse(raw);
+    if (Number((_a = data == null ? void 0 : data.errno) != null ? _a : -1) !== 0)
+      return null;
+    const first = (_b = data == null ? void 0 : data.data) == null ? void 0 : _b[0];
+    const v = first == null ? void 0 : first.v;
+    if (typeof v !== "string" || !v.trim())
+      return null;
+    const parts = v.split(";").map((p) => p.trim()).filter(Boolean);
+    return (_c = parts[0]) != null ? _c : null;
+  } catch (e) {
+    return null;
+  }
+}
+function buildYoudaoTranslateUrl(text, target = "zh-CN") {
+  var _a;
+  const to = (_a = YD_LANGS[target]) != null ? _a : target;
+  const params = { doctype: "json", type: "AUTO", to, i: text };
+  const qs = Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
+  return `https://fanyi.youdao.com/translate?${qs}`;
+}
+function parseYoudaoTranslateResponse(raw) {
+  var _a;
+  try {
+    const data = JSON.parse(raw);
+    const segs = (_a = data == null ? void 0 : data.translateResult) == null ? void 0 : _a[0];
+    if (!Array.isArray(segs) || segs.length === 0)
+      return null;
+    const parts = [];
+    for (const seg of segs) {
+      const t = seg == null ? void 0 : seg.tgt;
+      if (typeof t === "string" && t)
+        parts.push(t);
+    }
+    return parts.length > 0 ? parts.join("") : null;
+  } catch (e) {
+    return null;
+  }
+}
+function parseLyricLines(lrc) {
+  var _a;
+  const lines = [];
+  for (const rawLine of lrc.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line)
+      continue;
+    const stamps = [];
+    let rest = line;
+    let m;
+    const re = /\[(\d{1,3}):([0-5]?\d)(?:[.:](\d{1,3}))?\]/g;
+    while ((m = re.exec(line)) !== null) {
+      const mm = m[1];
+      const ss = m[2];
+      const frac = (_a = m[3]) != null ? _a : "00";
+      stamps.push(`[${mm}:${ss.padStart(2, "0")}.${frac.padEnd(2, "0").slice(0, 2)}]`);
+      rest = rest.replace(m[0], "");
+    }
+    const text = rest.trim();
+    if (!stamps.length && !text)
+      continue;
+    if (!stamps.length) {
+      if (/^\[[a-zA-Z]+:/.test(line))
+        continue;
+      lines.push({ time: "", text: line });
+    } else {
+      for (const stamp of stamps) {
+        lines.push({ time: stamp, text });
+      }
+    }
+  }
+  return lines;
+}
+function buildBilingualLrc(lines) {
+  const out = [];
+  for (const l of lines) {
+    if (!l.translation || !l.translation.trim()) {
+      out.push(`${l.time}${l.text}`);
+      continue;
+    }
+    const trans = l.translation.trim();
+    if (trans === l.text.trim()) {
+      out.push(`${l.time}${l.text}`);
+      continue;
+    }
+    out.push(`${l.time}${l.text} | ${trans}`);
+  }
+  return out.join("\n");
+}
+
 // src/songScanner.ts
 var AUDIO_EXTENSIONS = ["mp3", "flac", "wav", "ogg", "aac", "m4a"];
 function isAudioFile(path) {
@@ -12333,9 +12503,12 @@ function isAudioFile(path) {
   const ext = (_b = (_a = path.split(".").pop()) == null ? void 0 : _a.toLowerCase()) != null ? _b : "";
   return AUDIO_EXTENSIONS.includes(ext);
 }
+function isWindowsAbsolutePath(p) {
+  return p.length >= 3 && /^[A-Za-z]:[\\/]/.test(p);
+}
 function basenameNoExt(path) {
   var _a;
-  const name = (_a = path.split("/").pop()) != null ? _a : path;
+  const name = (_a = path.split(/[\\/]/).pop()) != null ? _a : path;
   return name.replace(/\.[^.]+$/, "");
 }
 function buildMp3Song(path) {
@@ -12363,188 +12536,3006 @@ function resolvePlayingMp3Metadata(state, songList) {
   return song ? { path: song.path, title: song.title, actor: song.actor } : null;
 }
 
-// src/LyricsView.ts
-var import_obsidian10 = require("obsidian");
+// src/tagSize.ts
+var TEXT_FRAME_OVERHEAD = 11;
+var LANG_FRAME_OVERHEAD = 4;
+var APIC_FRAME_OVERHEAD = 3;
+var utf8Len = (s) => new TextEncoder().encode(s).byteLength;
+var textFrameBytes = (text) => text ? TEXT_FRAME_OVERHEAD + utf8Len(text) : 0;
+var langFrameBytes = (text) => text ? TEXT_FRAME_OVERHEAD + LANG_FRAME_OVERHEAD + utf8Len(text) : 0;
+var apicFrameBytes = (cover) => {
+  if (!cover || cover.data.byteLength === 0)
+    return 0;
+  return TEXT_FRAME_OVERHEAD + APIC_FRAME_OVERHEAD + utf8Len(cover.mime) + cover.data.byteLength;
+};
+function estimateEmbeddedSize(tags) {
+  return textFrameBytes(tags.title) + textFrameBytes(tags.artist) + textFrameBytes(tags.album) + textFrameBytes(tags.year) + langFrameBytes(tags.comment) + langFrameBytes(tags.lyrics) + apicFrameBytes(tags.cover);
+}
+function formatBytes(bytes) {
+  const b = Math.max(0, Math.round(bytes));
+  if (b >= 1 << 20)
+    return `${(b / (1 << 20)).toFixed(2)} MB`;
+  if (b >= 1 << 10)
+    return `${Math.round(b / (1 << 10))} KB`;
+  return `${b} B`;
+}
 
-// src/TagEditorModal.ts
-var import_obsidian8 = require("obsidian");
-
-// src/onlineLyrics.ts
-var UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
-var HEADERS = { "User-Agent": UA, Referer: "https://music.163.com" };
-var TIMEOUT_MS = 8e3;
-async function fetchJson(url) {
+// src/kugouMusic.ts
+function buildKugouSearchUrl(keyword, limit = 20) {
+  const params = {
+    keyword,
+    platform: "WebFilter",
+    format: "json",
+    page: "1",
+    pagesize: String(limit),
+    userid: "-1",
+    clientver: "",
+    tag: "em",
+    filter: "2",
+    iscorrection: "1",
+    privilege_filter: "0",
+    "_": String(Date.now())
+  };
+  const qs = Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
+  return `http://songsearch.kugou.com/song_search_v2?${qs}`;
+}
+function parseKugouSearchResponse(raw) {
+  var _a, _b, _c, _d, _e, _f;
+  let data;
   try {
-    const r = window.require;
-    if (typeof r === "function") {
-      const https = r("https");
-      if (https && typeof https.request === "function") {
-        return await httpsGetJson(https, url);
-      }
-    }
+    data = JSON.parse(raw);
   } catch (e) {
-  }
-  return fetchJsonViaFetch(url);
-}
-function httpsGetJson(https, url) {
-  return new Promise((resolve, reject) => {
-    const u = new URL(url);
-    const req = https.request(
-      {
-        hostname: u.hostname,
-        path: u.pathname + u.search,
-        method: "GET",
-        headers: HEADERS
-      },
-      (res) => {
-        let body = "";
-        res.setEncoding("utf8");
-        res.on("data", (chunk2) => {
-          body += chunk2;
-        });
-        res.on("end", () => {
-          try {
-            resolve(JSON.parse(body));
-          } catch (e) {
-            reject(new Error("\u54CD\u5E94\u89E3\u6790\u5931\u8D25"));
-          }
-        });
-      }
-    );
-    req.setTimeout(TIMEOUT_MS, () => req.destroy(new Error("\u8BF7\u6C42\u8D85\u65F6")));
-    req.on("error", reject);
-    req.end();
-  });
-}
-async function fetchJsonViaFetch(url) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  try {
-    const res = await fetch(url, { signal: controller.signal });
-    if (!res.ok)
-      throw new Error(`HTTP ${res.status}`);
-    return await res.json();
-  } finally {
-    clearTimeout(timer);
-  }
-}
-async function searchSong(query) {
-  var _a;
-  const url = `https://music.163.com/api/cloudsearch/pc?s=${encodeURIComponent(query)}&type=1&limit=10`;
-  const data = await fetchJson(url);
-  const songs = (_a = data.result) == null ? void 0 : _a.songs;
-  if (!Array.isArray(songs))
     return [];
-  return songs.map((s) => {
-    const raw = s;
-    return {
-      id: Number(raw.id) || 0,
-      name: typeof raw.name === "string" ? raw.name : "",
-      artists: Array.isArray(raw.ar) ? raw.ar.map((a) => typeof a.name === "string" ? a.name : "") : [],
-      album: raw.al && typeof raw.al.name === "string" ? raw.al.name : void 0,
-      coverUrl: raw.al && typeof raw.al.picUrl === "string" ? raw.al.picUrl : void 0
-    };
-  });
-}
-async function downloadImage(url) {
-  const safeUrl = url.replace(/^http:\/\//, "https://");
-  try {
-    const r = window.require;
-    if (typeof r === "function") {
-      const https = r("https");
-      if (https && typeof https.request === "function") {
-        return await httpsGetBinary(https, safeUrl);
-      }
-    }
-  } catch (e) {
   }
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const lists = (_a = data == null ? void 0 : data.data) == null ? void 0 : _a.lists;
+  if (!Array.isArray(lists))
+    return [];
+  const out = [];
+  for (const it of lists) {
+    const hash = (_b = it == null ? void 0 : it.FileHash) != null ? _b : "";
+    if (!hash)
+      continue;
+    const sq = (_c = it == null ? void 0 : it.SQFileHash) != null ? _c : "";
+    const hq = (_d = it == null ? void 0 : it.HQFileHash) != null ? _d : "";
+    const name = cleanKugouText(it == null ? void 0 : it.SongName);
+    if (!name)
+      continue;
+    const coverRaw = (_e = it == null ? void 0 : it.Image) != null ? _e : "";
+    const duration = Number(it == null ? void 0 : it.Duration) > 0 ? Number(it.Duration) : void 0;
+    const size = Number(it == null ? void 0 : it.FileSize) > 0 ? Number(it.FileSize) : void 0;
+    const bitrate = size && duration ? Math.round(size * 8 / 1e3 / duration) : void 0;
+    out.push({
+      hash,
+      name,
+      artist: cleanKugouText(it == null ? void 0 : it.SingerName),
+      album: cleanKugouText(it == null ? void 0 : it.AlbumName) || void 0,
+      sqHash: sq || void 0,
+      hqHash: hq || void 0,
+      privilege: typeof (it == null ? void 0 : it.Privilege) === "number" ? it.Privilege : Number((_f = it == null ? void 0 : it.Privilege) != null ? _f : 0),
+      coverUrl: coverRaw ? coverRaw.replace("{size}", "240") : void 0,
+      duration,
+      size,
+      bitrate
+    });
+  }
+  return out;
+}
+function cleanKugouText(s) {
+  return String(s != null ? s : "").replace(/<\/?em>/g, "").trim();
+}
+function buildKugouSongInfoUrl(hash) {
+  return `http://m.kugou.com/app/i/getSongInfo.php?cmd=playInfo&hash=${encodeURIComponent(hash)}`;
+}
+function parseKugouSongInfoResponse(raw) {
+  var _a;
+  let data;
   try {
-    const res = await fetch(safeUrl, { signal: controller.signal });
-    if (!res.ok)
+    data = JSON.parse(raw);
+  } catch (e) {
+    return { url: "" };
+  }
+  const url = (_a = data == null ? void 0 : data.url) != null ? _a : "";
+  if (!url)
+    return { url: "" };
+  return {
+    url,
+    ext: (data == null ? void 0 : data.extName) || void 0,
+    bitrate: typeof (data == null ? void 0 : data.bitRate) === "number" ? data.bitRate : void 0
+  };
+}
+function buildKugouTrackercdnUrl(hash) {
+  const key = md5hex(hash + "kgcloudv2");
+  return `https://trackercdn.kugou.com/i/v2/?cdnBackup=1&behavior=download&pid=1&cmd=21&appid=1001&hash=${encodeURIComponent(hash)}&key=${key}`;
+}
+function parseKugouTrackercdnResponse(raw) {
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch (e) {
+    return { url: "" };
+  }
+  const url = pickFirstUrl(data == null ? void 0 : data.url) || pickFirstUrl(data == null ? void 0 : data.backup_url);
+  if (!url)
+    return { url: "" };
+  return { url, ext: (data == null ? void 0 : data.extName) || void 0, bitrate: data == null ? void 0 : data.bitRate };
+}
+function pickFirstUrl(v) {
+  if (typeof v === "string" && v)
+    return v;
+  if (Array.isArray(v)) {
+    for (const item of v) {
+      if (typeof item === "string" && item)
+        return item;
+    }
+  }
+  return "";
+}
+var KUGOU_MOBILE_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 13_2_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.0.3 Mobile/15E148 Safari/604.1";
+var KUGOU_MOBILE_REFERER = "http://m.kugou.com";
+var KUGOU_PC_REFERER = "https://www.kugou.com/";
+function buildKugouLyricSearchUrl(keyword) {
+  const params = { ver: "1", man: "yes", client: "pc", keyword, duration: "", hash: "" };
+  const qs = Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
+  return `https://lyrics.kugou.com/search?${qs}`;
+}
+function parseKugouLyricSearch(raw) {
+  var _a;
+  try {
+    const data = JSON.parse(raw);
+    const list = (_a = data == null ? void 0 : data.data) == null ? void 0 : _a.candidates;
+    if (!Array.isArray(list))
+      return [];
+    return list.map((it) => {
+      var _a2, _b, _c, _d;
+      const id = (_a2 = it == null ? void 0 : it.id) != null ? _a2 : "";
+      const accesskey = (_b = it == null ? void 0 : it.accesskey) != null ? _b : "";
+      if (!id || !accesskey)
+        return null;
+      return {
+        id,
+        accesskey,
+        song: (_c = it == null ? void 0 : it.song) != null ? _c : "",
+        singer: (_d = it == null ? void 0 : it.singer) != null ? _d : "",
+        duration: Number(it == null ? void 0 : it.duration) > 0 ? Number(it.duration) : void 0
+      };
+    }).filter((x) => x !== null);
+  } catch (e) {
+    return [];
+  }
+}
+function buildKugouLyricDownloadUrl(id, accesskey) {
+  const params = { ver: "1", client: "pc", id, accesskey, fmt: "lrc", charset: "utf8" };
+  const qs = Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
+  return `https://lyrics.kugou.com/download?${qs}`;
+}
+function parseKugouLyricDownload(raw) {
+  try {
+    const data = JSON.parse(raw);
+    const content = data == null ? void 0 : data.content;
+    if (typeof content !== "string" || !content)
       return null;
-    const buf = await res.arrayBuffer();
-    const ctype = res.headers.get("content-type") || "";
-    if (ctype && !ctype.startsWith("image/"))
-      return null;
-    return { mime: ctype.startsWith("image/") ? ctype : "image/jpeg", data: new Uint8Array(buf) };
+    try {
+      const buf = Buffer.from(content.replace(/\s+/g, ""), "base64");
+      const dec = buf.toString("utf8");
+      if (dec && dec.includes("["))
+        return dec;
+    } catch (e) {
+    }
+    return content;
   } catch (e) {
     return null;
-  } finally {
-    clearTimeout(timer);
   }
 }
-function httpsGetBinary(https, url) {
-  return new Promise((resolve) => {
-    const u = new URL(url);
-    const req = https.request(
-      {
-        hostname: u.hostname,
-        path: u.pathname + u.search,
-        method: "GET",
-        headers: { "User-Agent": UA }
-      },
-      (res) => {
-        const chunks = [];
-        res.on("data", (c) => chunks.push(c));
-        res.on("end", () => {
-          const ctype = res.headers["content-type"] || "";
-          const buf = Buffer.concat(chunks);
-          if (!buf.length || ctype && !ctype.startsWith("image/")) {
-            resolve(null);
-            return;
-          }
-          resolve({ mime: ctype.startsWith("image/") ? ctype : "image/jpeg", data: new Uint8Array(buf) });
-        });
+function buildKugouSpecialListUrl(page = 1, pagesize = 30) {
+  return `http://m.kugou.com/plist/index?json=true&page=${page}&pagesize=${pagesize}`;
+}
+function parseKugouSpecialList(raw) {
+  var _a, _b, _c, _d, _e, _f;
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch (e) {
+    return [];
+  }
+  const info = (_b = (_a = data == null ? void 0 : data.plist) == null ? void 0 : _a.list) == null ? void 0 : _b.info;
+  if (!Array.isArray(info))
+    return [];
+  const out = [];
+  for (const it of info) {
+    const id = String((_c = it == null ? void 0 : it.specialid) != null ? _c : "");
+    const name = cleanKugouText(it == null ? void 0 : it.specialname);
+    if (!id || !name)
+      continue;
+    const coverRaw = (_d = it == null ? void 0 : it.imgurl) != null ? _d : "";
+    const playCount = Number((_e = it == null ? void 0 : it.playcount) != null ? _e : 0);
+    const trackCount = Number((_f = it == null ? void 0 : it.songcount) != null ? _f : 0);
+    out.push({
+      id,
+      name,
+      coverUrl: coverRaw ? coverRaw.replace("{size}", "150") : void 0,
+      playCount: playCount > 0 ? playCount : 0,
+      trackCount: trackCount > 0 ? trackCount : void 0
+    });
+  }
+  return out;
+}
+function buildKugouSpecialDetailUrl(specialid, page = 1, pagesize = 100) {
+  return `http://m.kugou.com/plist/list/${encodeURIComponent(specialid)}?json=true&page=${page}&pagesize=${pagesize}`;
+}
+function parseKugouSpecialDetail(raw) {
+  var _a, _b, _c, _d, _e, _f;
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch (e) {
+    return [];
+  }
+  const info = (_b = (_a = data == null ? void 0 : data.list) == null ? void 0 : _a.list) == null ? void 0 : _b.info;
+  if (!Array.isArray(info))
+    return [];
+  const out = [];
+  for (const it of info) {
+    const hash = (_c = it == null ? void 0 : it.hash) != null ? _c : "";
+    const filename = (_d = it == null ? void 0 : it.filename) != null ? _d : "";
+    if (!hash || !filename)
+      continue;
+    const idx = filename.lastIndexOf(" - ");
+    const name = idx > 0 ? filename.slice(0, idx).trim() : filename.trim();
+    const artist = idx > 0 ? filename.slice(idx + 3).trim() : "";
+    const privilege = typeof (it == null ? void 0 : it.privilege) === "number" ? it.privilege : Number((_e = it == null ? void 0 : it.privilege) != null ? _e : 0);
+    const sz128 = Number((_f = it == null ? void 0 : it.filesize) != null ? _f : 0);
+    const size = sz128 > 0 ? sz128 : void 0;
+    const bitrate = size !== void 0 ? 128 : void 0;
+    out.push({
+      hash,
+      name,
+      artist,
+      privilege,
+      duration: Number(it == null ? void 0 : it.duration) > 0 ? Number(it.duration) : void 0,
+      size,
+      bitrate
+    });
+  }
+  return out;
+}
+var KUGOU_VIP_ROLEINFO_URL = "https://vip.kugou.com/recharge/roleinfo";
+function parseKugouRoleinfo(raw) {
+  var _a, _b;
+  try {
+    const data = JSON.parse(raw);
+    const errno = Number((_a = data == null ? void 0 : data.errno) != null ? _a : -1);
+    const errorCode = Number((_b = data == null ? void 0 : data.error_code) != null ? _b : -1);
+    return { ok: errno === 0, errno, errorCode };
+  } catch (e) {
+    return { ok: false, errno: -1, errorCode: -1 };
+  }
+}
+function md5hex(input) {
+  const utf8 = unescape(encodeURIComponent(input));
+  const bytes = [];
+  for (let i = 0; i < utf8.length; i++)
+    bytes.push(utf8.charCodeAt(i));
+  const bitLen = bytes.length * 8;
+  bytes.push(128);
+  while (bytes.length % 64 !== 56)
+    bytes.push(0);
+  bytes.push(
+    bitLen >>> 0 & 255,
+    bitLen >>> 8 & 255,
+    bitLen >>> 16 & 255,
+    bitLen >>> 24 & 255,
+    bitLen / 4294967296 & 255,
+    bitLen / 4294967296 >>> 8 & 255,
+    bitLen / 4294967296 >>> 16 & 255,
+    bitLen / 4294967296 >>> 24 & 255
+  );
+  let a0 = 1732584193, b0 = 4023233417, c0 = 2562383102, d0 = 271733878;
+  const K = [
+    3614090360,
+    3905402710,
+    606105819,
+    3250441966,
+    4118548399,
+    1200080426,
+    2821735955,
+    4249261313,
+    1770035416,
+    2336552879,
+    4294925233,
+    2304563134,
+    1804603682,
+    4254626195,
+    2792965006,
+    1236535329,
+    4129170786,
+    3225465664,
+    643717713,
+    3921069994,
+    3593408605,
+    38016083,
+    3634488961,
+    3889429448,
+    568446438,
+    3275163606,
+    4107603335,
+    1163531501,
+    2850285829,
+    4243563512,
+    1735328473,
+    2368359562,
+    4294588738,
+    2272392833,
+    1839030562,
+    4259657740,
+    2763975236,
+    1272893353,
+    4139469664,
+    3200236656,
+    681279174,
+    3936430074,
+    3572445317,
+    76029189,
+    3654602809,
+    3873151461,
+    530742520,
+    3299628645,
+    4096336452,
+    1126891415,
+    2878612391,
+    4237533241,
+    1700485571,
+    2399980690,
+    4293915773,
+    2240044497,
+    1873313359,
+    4264355552,
+    2734768916,
+    1309151649,
+    4149444226,
+    3174756917,
+    718787259,
+    3951481745
+  ];
+  const S = [
+    7,
+    12,
+    17,
+    22,
+    7,
+    12,
+    17,
+    22,
+    7,
+    12,
+    17,
+    22,
+    7,
+    12,
+    17,
+    22,
+    5,
+    9,
+    14,
+    20,
+    5,
+    9,
+    14,
+    20,
+    5,
+    9,
+    14,
+    20,
+    5,
+    9,
+    14,
+    20,
+    4,
+    11,
+    16,
+    23,
+    4,
+    11,
+    16,
+    23,
+    4,
+    11,
+    16,
+    23,
+    4,
+    11,
+    16,
+    23,
+    6,
+    10,
+    15,
+    21,
+    6,
+    10,
+    15,
+    21,
+    6,
+    10,
+    15,
+    21,
+    6,
+    10,
+    15,
+    21
+  ];
+  const m = [];
+  for (let i = 0; i < bytes.length; i += 4) {
+    m.push((bytes[i] | bytes[i + 1] << 8 | bytes[i + 2] << 16 | bytes[i + 3] << 24) >>> 0);
+  }
+  const rotl = (x, c) => (x << c | x >>> 32 - c) >>> 0;
+  for (let i = 0; i < m.length; i += 16) {
+    const chunk2 = m.slice(i, i + 16);
+    let a = a0, b = b0, c = c0, d = d0;
+    for (let j = 0; j < 64; j++) {
+      let f, g;
+      if (j < 16) {
+        f = b & c | ~b & d;
+        g = j;
+      } else if (j < 32) {
+        f = d & b | ~d & c;
+        g = (5 * j + 1) % 16;
+      } else if (j < 48) {
+        f = b ^ c ^ d;
+        g = (3 * j + 5) % 16;
+      } else {
+        f = c ^ (b | ~d);
+        g = 7 * j % 16;
       }
-    );
-    req.setTimeout(TIMEOUT_MS, () => req.destroy());
+      const tmp = d;
+      d = c;
+      c = b;
+      b = b + rotl(a + f + K[j] + chunk2[g], S[j]) >>> 0;
+      a = tmp;
+    }
+    a0 = a0 + a >>> 0;
+    b0 = b0 + b >>> 0;
+    c0 = c0 + c >>> 0;
+    d0 = d0 + d >>> 0;
+  }
+  const toHex = (n) => {
+    let s = (n >>> 0).toString(16);
+    while (s.length < 8)
+      s = "0" + s;
+    return s;
+  };
+  const le = (n) => toHex((n & 255) << 24 | (n >>> 8 & 255) << 16 | (n >>> 16 & 255) << 8 | n >>> 24 & 255);
+  return le(a0) + le(b0) + le(c0) + le(d0);
+}
+
+// src/neteaseCrypto.ts
+function getNodeCrypto() {
+  try {
+    const w = typeof window !== "undefined" ? window : void 0;
+    if (w && typeof w.require === "function") {
+      const c = w.require("crypto");
+      if (c && typeof c.createCipheriv === "function")
+        return c;
+    }
+  } catch (e) {
+  }
+  try {
+    const req = typeof require !== "undefined" ? require : void 0;
+    if (typeof req === "function") {
+      const c = req("crypto");
+      if (c && typeof c.createCipheriv === "function")
+        return c;
+    }
+  } catch (e) {
+  }
+  throw new Error("Node crypto \u4E0D\u53EF\u7528");
+}
+var WEAPI_NONCE = "0CoJUm6Qyw8W8jud";
+var WEAPI_IV = "0102030405060708";
+var WEAPI_PUB_MODULUS = "00e0b509f6259df8642dbc35662901477df22677ec152b5ff68ace615bb7b725152b3ab17a876aea8a5aa76d2e417629ec4ee341f56135fccf695280104e0312ecbda92557c93870114af6c9d05c4f7f0c3685b7a46bee255932575cce10b424d813cfe4875d3e82047b97ddef52741d546b8e289dc6935b3ece0462db0a22b8e7";
+var WEAPI_PUB_KEY = "010001";
+var EAPI_KEY = "e82ckenh8dichen8";
+var EAPI_MID = "36cd479b6b5";
+function randomString(size = 16) {
+  const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  let out = "";
+  for (let i = 0; i < size; i++)
+    out += letters[Math.floor(Math.random() * letters.length)];
+  return out;
+}
+function aesEncryptCBC(text, key, iv) {
+  const crypto = getNodeCrypto();
+  const cipher = crypto.createCipheriv("aes-128-cbc", Buffer.from(key, "utf8"), Buffer.from(iv, "utf8"));
+  const enc = Buffer.concat([cipher.update(text, "utf8"), cipher.final()]);
+  return enc.toString("base64");
+}
+function aesEncryptECB(text, key) {
+  const crypto = getNodeCrypto();
+  const cipher = crypto.createCipheriv("aes-128-ecb", Buffer.from(key, "utf8"), null);
+  const enc = Buffer.concat([cipher.update(text, "utf8"), cipher.final()]);
+  return enc.toString("hex");
+}
+function rsaEncrypt(text, pubKey = WEAPI_PUB_KEY, modulus = WEAPI_PUB_MODULUS) {
+  const reversed = Array.from(text).reverse().join("");
+  const hexText = Buffer.from(reversed, "utf8").toString("hex");
+  const base = BigInt("0x" + hexText);
+  const exp = BigInt("0x" + pubKey);
+  const mod = BigInt("0x" + modulus);
+  let result = BigInt(1);
+  let b = base;
+  let e = exp;
+  const one = BigInt(1);
+  while (e > BigInt(0)) {
+    if ((e & one) === one)
+      result = result * b % mod;
+    b = b * b % mod;
+    e >>= one;
+  }
+  return result.toString(16).padStart(256, "0");
+}
+function encryptWeApi(text) {
+  const secKey = randomString(16);
+  const encText = aesEncryptCBC(text, WEAPI_NONCE, WEAPI_IV);
+  const params = aesEncryptCBC(encText, secKey, WEAPI_IV);
+  const encSecKey = rsaEncrypt(secKey);
+  return { params, encSecKey };
+}
+function encryptEApi(urlPath, payload) {
+  const path = urlPath.replace("/eapi/", "/api/");
+  const digest = md5hex(`nobody${path}use${payload}md5forencrypt`);
+  const data = `${path}-${EAPI_MID}-${payload}-${EAPI_MID}-${digest}`;
+  return aesEncryptECB(data, EAPI_KEY);
+}
+function parseVipAccountResponse(raw) {
+  var _a, _b, _c;
+  try {
+    const data = JSON.parse(raw);
+    const code = Number((_a = data == null ? void 0 : data.code) != null ? _a : -1);
+    const vipType = Number((_c = (_b = data == null ? void 0 : data.profile) == null ? void 0 : _b.vipType) != null ? _c : 0);
+    return { ok: code === 200, vipType };
+  } catch (e) {
+    return { ok: false, vipType: 0 };
+  }
+}
+function buildRecommendedPlaylistsBody(limit = 30) {
+  return JSON.stringify({ limit, total: true, n: 1e3 });
+}
+function parseRecommendedPlaylists(raw) {
+  var _a;
+  try {
+    const data = JSON.parse(raw);
+    if (Number((_a = data == null ? void 0 : data.code) != null ? _a : 0) !== 200)
+      return [];
+    const list = data == null ? void 0 : data.result;
+    if (!Array.isArray(list))
+      return [];
+    return list.map((it) => {
+      var _a2, _b, _c, _d;
+      const id = String((_a2 = it == null ? void 0 : it.id) != null ? _a2 : "");
+      const name = (_b = it == null ? void 0 : it.name) != null ? _b : "";
+      if (!id || !name)
+        return null;
+      return {
+        id,
+        name,
+        coverUrl: (it == null ? void 0 : it.picUrl) || void 0,
+        playCount: Number((_c = it == null ? void 0 : it.playCount) != null ? _c : 0),
+        trackCount: Number((_d = it == null ? void 0 : it.trackCount) != null ? _d : 0),
+        copywriter: (it == null ? void 0 : it.copywriter) || void 0
+      };
+    }).filter((x) => x !== null);
+  } catch (e) {
+    return [];
+  }
+}
+function buildPlaylistDetailBody(playlistId) {
+  return JSON.stringify({ id: playlistId, n: 0, csrf_token: "" });
+}
+function parsePlaylistTrackIds(raw) {
+  var _a, _b;
+  try {
+    const data = JSON.parse(raw);
+    if (Number((_a = data == null ? void 0 : data.code) != null ? _a : 0) !== 200)
+      return [];
+    const ids = (_b = data == null ? void 0 : data.playlist) == null ? void 0 : _b.trackIds;
+    if (!Array.isArray(ids))
+      return [];
+    return ids.map((t) => {
+      var _a2;
+      return String((_a2 = t == null ? void 0 : t.id) != null ? _a2 : "");
+    }).filter(Boolean);
+  } catch (e) {
+    return [];
+  }
+}
+function buildSongDetailBody(ids) {
+  const c = JSON.stringify(ids.map((id) => ({ id })));
+  return JSON.stringify({ c, ids: JSON.stringify(ids) });
+}
+function parseSongDetailSongs(raw) {
+  try {
+    const data = JSON.parse(raw);
+    const list = data == null ? void 0 : data.songs;
+    if (!Array.isArray(list))
+      return [];
+    const map = (s) => {
+      var _a, _b, _c, _d, _e, _f;
+      const id = Number((_a = s == null ? void 0 : s.id) != null ? _a : 0);
+      const name = (_b = s == null ? void 0 : s.name) != null ? _b : "";
+      if (!id || !name)
+        return null;
+      const artist = Array.isArray(s == null ? void 0 : s.ar) ? s.ar.map((a) => {
+        var _a2;
+        return (_a2 = a == null ? void 0 : a.name) != null ? _a2 : "";
+      }).filter(Boolean).join("/") : "";
+      const lObj = s == null ? void 0 : s.l;
+      const lSize = Number((_c = lObj == null ? void 0 : lObj.size) != null ? _c : 0);
+      const size = lSize > 0 ? lSize : void 0;
+      const lBr = Number((_d = lObj == null ? void 0 : lObj.br) != null ? _d : 0);
+      const bitrate = lSize > 0 && lBr > 0 ? Math.round(lBr / 1e3) : void 0;
+      return {
+        id,
+        name,
+        artist,
+        album: ((_e = s == null ? void 0 : s.al) == null ? void 0 : _e.name) || void 0,
+        coverUrl: ((_f = s == null ? void 0 : s.al) == null ? void 0 : _f.picUrl) || void 0,
+        duration: Number(s == null ? void 0 : s.dt) > 0 ? Math.round(Number(s.dt) / 1e3) : void 0,
+        fee: typeof (s == null ? void 0 : s.fee) === "number" ? s.fee : void 0,
+        size,
+        bitrate
+      };
+    };
+    return list.map(map).filter((x) => x !== null);
+  } catch (e) {
+    return [];
+  }
+}
+
+// src/qqMusic.ts
+function buildQqSearchUrl(keyword, limit = 20) {
+  return `https://c.y.qq.com/soso/fcgi-bin/client_search_cp?w=${encodeURIComponent(keyword)}&format=json&n=${limit}&p=1`;
+}
+function parseQqSearchResponse(raw) {
+  var _a, _b;
+  let json = raw.trim().replace(/^\/\*[\s\S]*?\*\//, "");
+  const m = json.match(/^[^(]*\(([\s\S]*)\)\s*;?\s*$/);
+  if (m)
+    json = m[1];
+  let data;
+  try {
+    data = JSON.parse(json);
+  } catch (e) {
+    return [];
+  }
+  const list = (_b = (_a = data == null ? void 0 : data.data) == null ? void 0 : _a.song) == null ? void 0 : _b.list;
+  if (!Array.isArray(list))
+    return [];
+  return list.map((s) => {
+    var _a2, _b2, _c, _d, _e, _f;
+    const size128 = Number((_a2 = s == null ? void 0 : s.size128) != null ? _a2 : 0);
+    const hasSize = size128 > 0;
+    const size = hasSize ? size128 : void 0;
+    const bitrate = hasSize ? 128 : void 0;
+    const albummid = (_b2 = s == null ? void 0 : s.albummid) != null ? _b2 : "";
+    return {
+      songmid: (_c = s == null ? void 0 : s.songmid) != null ? _c : "",
+      name: (_d = s == null ? void 0 : s.songname) != null ? _d : "",
+      artist: Array.isArray(s == null ? void 0 : s.singer) ? s.singer.map((x) => {
+        var _a3;
+        return (_a3 = x == null ? void 0 : x.name) != null ? _a3 : "";
+      }).filter(Boolean).join("/") : "",
+      album: (s == null ? void 0 : s.albumname) || void 0,
+      // 下载付费字段 pay.dowload（1=仅 VIP、100=付费单曲/试听），播放付费 payplay 不适用
+      vipOnly: ((_e = s == null ? void 0 : s.pay) == null ? void 0 : _e.dowload) === 1 || ((_f = s == null ? void 0 : s.pay) == null ? void 0 : _f.dowload) === 100,
+      duration: Number(s == null ? void 0 : s.interval) > 0 ? Number(s.interval) : void 0,
+      size: hasSize ? size : void 0,
+      bitrate: hasSize ? bitrate : void 0,
+      coverUrl: albummid ? `https://y.gtimg.cn/music/photo_new/T002R300x300M000${albummid}.jpg` : void 0
+    };
+  }).filter((s) => s.songmid && s.name);
+}
+function makeGuid() {
+  const chars = "0123456789abcdef";
+  let s = "";
+  for (let i = 0; i < 32; i++)
+    s += chars[Math.floor(Math.random() * 16)];
+  return s;
+}
+function buildQqVkeyBody(songmid, guid, uin) {
+  const data = {
+    req_0: {
+      module: "vkey.GetVkeyServer",
+      method: "CgiGetVkey",
+      param: {
+        guid,
+        songmid: [songmid],
+        songtype: [0],
+        uin: uin || "0",
+        loginflag: 1,
+        platform: "20"
+      }
+    }
+  };
+  return JSON.stringify(data);
+}
+function buildQqVkeyUrl(body) {
+  return `https://u.y.qq.com/cgi-bin/musicu.fcg?format=json&data=${encodeURIComponent(body)}`;
+}
+function parseQqPurl(raw) {
+  var _a, _b, _c, _d, _e;
+  try {
+    const data = JSON.parse(raw);
+    return (_e = (_d = (_c = (_b = (_a = data == null ? void 0 : data.req_0) == null ? void 0 : _a.data) == null ? void 0 : _b.midurlinfo) == null ? void 0 : _c[0]) == null ? void 0 : _d.purl) != null ? _e : "";
+  } catch (e) {
+    return "";
+  }
+}
+function extractQqUin(cookie) {
+  const m = cookie.match(/(?:^|;\s*)uin=o?(\d+)/);
+  return m ? m[1] : "";
+}
+function buildQqUserInfoBody(uin) {
+  const data = {
+    comm: {
+      cv: 0,
+      ct: 24,
+      format: "json",
+      inCharset: "utf-8",
+      outCharset: "utf-8",
+      notice: 0,
+      platform: "yqq.json",
+      needNewCode: 1,
+      uin: uin || "0"
+    },
+    req_1: {
+      module: "music.homepage.FcgiGetUserInfo",
+      method: "GetUserInfo",
+      param: {}
+    }
+  };
+  return JSON.stringify(data);
+}
+function buildQqUserInfoUrl(uin) {
+  return `https://u.y.qq.com/cgi-bin/musicu.fcg?format=json&data=${encodeURIComponent(buildQqUserInfoBody(uin))}`;
+}
+function parseQqUserInfo(raw) {
+  var _a, _b;
+  try {
+    const data = JSON.parse(raw);
+    const code = Number((_b = (_a = data == null ? void 0 : data.req_1) == null ? void 0 : _a.code) != null ? _b : -1);
+    return { ok: code === 0, code };
+  } catch (e) {
+    return { ok: false, code: -1 };
+  }
+}
+function buildQqDissListUrl(sin = 0, ein = 29) {
+  const params = {
+    g_tk: "5381",
+    loginUin: "0",
+    hostUin: "0",
+    format: "json",
+    inCharset: "GB2312",
+    outCharset: "utf-8",
+    notice: "0",
+    platform: "yqq",
+    needNewCode: "0",
+    categoryId: "10000000",
+    sortId: "5",
+    sin: String(sin),
+    ein: String(ein)
+  };
+  const qs = Object.entries(params).map(([k, v]) => `${k}=${v}`).join("&");
+  return `https://c.y.qq.com/splcloud/fcgi-bin/fcg_get_diss_by_tag.fcg?${qs}`;
+}
+function buildQqLyricUrl(songmid) {
+  const params = {
+    songmid,
+    format: "json",
+    nobase64: "1",
+    g_tk: "5381",
+    loginUin: "0",
+    hostUin: "0",
+    inCharset: "utf8",
+    outCharset: "utf-8"
+  };
+  const qs = Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
+  return `https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg?${qs}`;
+}
+function parseQqLyricResponse(raw) {
+  var _a, _b;
+  let json = raw.trim().replace(/^\/\*[\s\S]*?\*\//, "");
+  const m = json.match(/^[^(]*\(([\s\S]*)\)\s*;?\s*$/);
+  if (m)
+    json = m[1];
+  try {
+    const data = JSON.parse(json);
+    if (Number((_a = data == null ? void 0 : data.retcode) != null ? _a : -1) !== 0 && Number((_b = data == null ? void 0 : data.code) != null ? _b : -1) !== 0)
+      return null;
+    const lyric = data == null ? void 0 : data.lyric;
+    return typeof lyric === "string" && lyric.trim() ? lyric : null;
+  } catch (e) {
+    return null;
+  }
+}
+function parseQqDissList(raw) {
+  var _a, _b;
+  let json = raw.trim().replace(/^\/\*[\s\S]*?\*\//, "");
+  const m = json.match(/^[^(]*\(([\s\S]*)\)\s*;?\s*$/);
+  if (m)
+    json = m[1];
+  let data;
+  try {
+    data = JSON.parse(json);
+  } catch (e) {
+    return [];
+  }
+  if (Number((_a = data == null ? void 0 : data.code) != null ? _a : 0) !== 0)
+    return [];
+  const list = (_b = data == null ? void 0 : data.data) == null ? void 0 : _b.list;
+  if (!Array.isArray(list))
+    return [];
+  return list.map((it) => {
+    var _a2, _b2, _c;
+    const id = String((_a2 = it == null ? void 0 : it.dissid) != null ? _a2 : "");
+    const name = (_b2 = it == null ? void 0 : it.dissname) != null ? _b2 : "";
+    if (!id || !name)
+      return null;
+    return {
+      id,
+      name,
+      coverUrl: (it == null ? void 0 : it.imgurl) || void 0,
+      playCount: Number((_c = it == null ? void 0 : it.listennum) != null ? _c : 0)
+    };
+  }).filter((x) => x !== null);
+}
+function buildQqDissDetailUrl(dissid) {
+  const params = {
+    type: "1",
+    json: "1",
+    utf8: "1",
+    onlysong: "1",
+    disstid: dissid,
+    format: "json",
+    g_tk: "5381",
+    loginUin: "0",
+    hostUin: "0",
+    inCharset: "GB2312",
+    outCharset: "utf-8",
+    notice: "0",
+    platform: "yqq",
+    needNewCode: "0"
+  };
+  const qs = Object.entries(params).map(([k, v]) => `${k}=${v}`).join("&");
+  return `https://c.y.qq.com/qzone/fcg-bin/fcg_ucc_getcdinfo_byids_cp.fcg?${qs}`;
+}
+function mapQqSong(s) {
+  var _a, _b, _c, _d, _e, _f;
+  const songmid = (_a = s == null ? void 0 : s.songmid) != null ? _a : "";
+  const name = (_b = s == null ? void 0 : s.songname) != null ? _b : "";
+  if (!songmid || !name)
+    return null;
+  const size128 = Number((_c = s == null ? void 0 : s.size128) != null ? _c : 0);
+  const hasSize = size128 > 0;
+  const size = hasSize ? size128 : void 0;
+  const bitrate = hasSize ? 128 : void 0;
+  const albummid = (_d = s == null ? void 0 : s.albummid) != null ? _d : "";
+  return {
+    songmid,
+    name,
+    artist: Array.isArray(s == null ? void 0 : s.singer) ? s.singer.map((x) => {
+      var _a2;
+      return (_a2 = x == null ? void 0 : x.name) != null ? _a2 : "";
+    }).filter(Boolean).join("/") : "",
+    album: (s == null ? void 0 : s.albumname) || void 0,
+    // 下载付费字段 pay.dowload（1=仅 VIP、100=付费单曲/试听），播放付费 payplay 不适用
+    vipOnly: ((_e = s == null ? void 0 : s.pay) == null ? void 0 : _e.dowload) === 1 || ((_f = s == null ? void 0 : s.pay) == null ? void 0 : _f.dowload) === 100,
+    duration: Number(s == null ? void 0 : s.interval) > 0 ? Number(s.interval) : void 0,
+    size: hasSize ? size : void 0,
+    bitrate: hasSize ? bitrate : void 0,
+    coverUrl: albummid ? `https://y.gtimg.cn/music/photo_new/T002R300x300M000${albummid}.jpg` : void 0
+  };
+}
+function parseQqDissDetail(raw) {
+  var _a, _b;
+  let json = raw.trim().replace(/^\/\*[\s\S]*?\*\//, "");
+  const m = json.match(/^[^(]*\(([\s\S]*)\)\s*;?\s*$/);
+  if (m)
+    json = m[1];
+  let data;
+  try {
+    data = JSON.parse(json);
+  } catch (e) {
+    return [];
+  }
+  const list = (_b = (_a = data == null ? void 0 : data.cdlist) == null ? void 0 : _a[0]) == null ? void 0 : _b.songlist;
+  if (!Array.isArray(list))
+    return [];
+  return list.map((s) => mapQqSong(s)).filter((x) => x !== null);
+}
+var QQ_MUSICU_URL = "https://u.y.qq.com/cgi-bin/musicu.fcg";
+function buildQqDissDetailV2Body(dissid, songNum = 100) {
+  return JSON.stringify({
+    comm: {
+      cv: 4747474,
+      ct: 24,
+      format: "json",
+      inCharset: "utf-8",
+      outCharset: "utf-8",
+      platform: "yqq.json",
+      needNewCode: 1,
+      uin: 0
+    },
+    req_1: {
+      module: "music.srfDissInfo.aiDissInfo",
+      method: "uniform_get_Dissinfo",
+      param: {
+        disstid: parseInt(dissid, 10) || 0,
+        userinfo: 1,
+        tag: 1,
+        orderlist: 1,
+        song_begin: 0,
+        song_num: songNum,
+        onlysonglist: 0,
+        enc_host_uin: ""
+      }
+    }
+  });
+}
+function buildQqDissCountsBody(ids) {
+  const reqs = {};
+  ids.forEach((id, i) => {
+    reqs[`req_${i + 1}`] = {
+      module: "music.srfDissInfo.aiDissInfo",
+      method: "uniform_get_Dissinfo",
+      param: {
+        disstid: parseInt(id, 10) || 0,
+        userinfo: 0,
+        tag: 0,
+        orderlist: 0,
+        song_begin: 0,
+        song_num: 1,
+        onlysonglist: 1,
+        enc_host_uin: ""
+      }
+    };
+  });
+  return JSON.stringify({
+    comm: {
+      cv: 4747474,
+      ct: 24,
+      format: "json",
+      inCharset: "utf-8",
+      outCharset: "utf-8",
+      platform: "yqq.json",
+      needNewCode: 1,
+      uin: 0
+    },
+    ...reqs
+  });
+}
+function parseQqDissCounts(raw, ids) {
+  const out = {};
+  try {
+    const data = JSON.parse(raw);
+    ids.forEach((id, i) => {
+      var _a, _b;
+      const req = data == null ? void 0 : data[`req_${i + 1}`];
+      if (req && Number((_a = req == null ? void 0 : req.code) != null ? _a : 0) === 0) {
+        const n = Number((_b = req == null ? void 0 : req.data) == null ? void 0 : _b.total_song_num);
+        if (n > 0)
+          out[id] = n;
+      }
+    });
+  } catch (e) {
+  }
+  return out;
+}
+function parseQqDissDetailV2(raw) {
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k;
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch (e) {
+    return [];
+  }
+  const req1 = data == null ? void 0 : data.req_1;
+  if (!req1 || Number((_a = req1 == null ? void 0 : req1.code) != null ? _a : 0) !== 0)
+    return [];
+  const list = (_b = req1 == null ? void 0 : req1.data) == null ? void 0 : _b.songlist;
+  if (!Array.isArray(list))
+    return [];
+  const out = [];
+  for (const it of list) {
+    const songmid = (_c = it == null ? void 0 : it.mid) != null ? _c : "";
+    const name = (_d = it == null ? void 0 : it.name) != null ? _d : "";
+    if (!songmid || !name)
+      continue;
+    const size128 = Number((_f = (_e = it == null ? void 0 : it.file) == null ? void 0 : _e.size_128mp3) != null ? _f : 0);
+    const hasSize = size128 > 0;
+    const size = hasSize ? size128 : void 0;
+    const bitrate = hasSize ? 128 : void 0;
+    const albummid = (_h = (_g = it == null ? void 0 : it.album) == null ? void 0 : _g.mid) != null ? _h : "";
+    out.push({
+      songmid,
+      name,
+      artist: Array.isArray(it == null ? void 0 : it.singer) ? it.singer.map((x) => {
+        var _a2;
+        return (_a2 = x == null ? void 0 : x.name) != null ? _a2 : "";
+      }).filter(Boolean).join("/") : "",
+      album: ((_i = it == null ? void 0 : it.album) == null ? void 0 : _i.name) || void 0,
+      // uniform_get_Dissinfo 的下载付费字段为 pay.down（1=仅 VIP、100=付费单曲/试听），播放付费 pay_play 不适用
+      vipOnly: ((_j = it == null ? void 0 : it.pay) == null ? void 0 : _j.down) === 1 || ((_k = it == null ? void 0 : it.pay) == null ? void 0 : _k.down) === 100,
+      duration: Number(it == null ? void 0 : it.interval) > 0 ? Number(it.interval) : void 0,
+      size: hasSize ? size : void 0,
+      bitrate: hasSize ? bitrate : void 0,
+      coverUrl: albummid ? `https://y.gtimg.cn/music/photo_new/T002R300x300M000${albummid}.jpg` : void 0
+    });
+  }
+  return out;
+}
+
+// src/kuwoMusic.ts
+function buildKuwoSearchUrl(keyword, limit = 20) {
+  const params = {
+    vipver: "1",
+    client: "kt",
+    ft: "music",
+    cluster: "0",
+    strategy: "2012",
+    encoding: "utf8",
+    rformat: "json",
+    mobi: "1",
+    issubtitle: "1",
+    show_copyright_off: "1",
+    pn: "0",
+    rn: String(limit),
+    all: keyword
+  };
+  const qs = Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
+  return `http://www.kuwo.cn/search/searchMusicBykeyWord?${qs}`;
+}
+function parseKuwoSearchResponse(raw) {
+  var _a, _b, _c, _d, _e, _f;
+  let data = tryParseKuwoJson(raw);
+  if (data === void 0)
+    data = tryParseKuwoJson(raw.replace(/'/g, '"'));
+  if (data === void 0)
+    return [];
+  const abslist = data == null ? void 0 : data.abslist;
+  if (!Array.isArray(abslist))
+    return [];
+  const out = [];
+  for (const it of abslist) {
+    const rid = String((_a = it == null ? void 0 : it.MUSICRID) != null ? _a : "").replace(/^MUSIC_/, "");
+    const name = (_b = it == null ? void 0 : it.SONGNAME) != null ? _b : "";
+    if (!rid || !name)
+      continue;
+    if (Number((_c = it == null ? void 0 : it.bitSwitch) != null ? _c : 0) === 0)
+      continue;
+    const minfo = (_d = it == null ? void 0 : it.MINFO) != null ? _d : "";
+    const { size, bitrate } = parseKuwoMInfo(minfo);
+    out.push({
+      rid,
+      name,
+      artist: (_e = it == null ? void 0 : it.ARTIST) != null ? _e : "",
+      album: (it == null ? void 0 : it.ALBUM) || void 0,
+      bitSwitch: Number((_f = it == null ? void 0 : it.bitSwitch) != null ? _f : 0),
+      duration: Number(it == null ? void 0 : it.DURATION) > 0 ? Number(it.DURATION) : void 0,
+      size: size > 0 ? size : void 0,
+      bitrate: bitrate > 0 ? bitrate : void 0,
+      coverUrl: (it == null ? void 0 : it.hts_MVPIC) || void 0
+    });
+  }
+  return out;
+}
+function tryParseKuwoJson(raw) {
+  try {
+    return JSON.parse(raw);
+  } catch (e) {
+    return void 0;
+  }
+}
+function parseKuwoMInfo(minfo) {
+  var _a, _b;
+  if (!minfo)
+    return { size: 0, bitrate: 0 };
+  const formats = [];
+  for (const part of minfo.split(";")) {
+    const kv = {};
+    for (const attr2 of part.split(",")) {
+      const idx = attr2.indexOf(":");
+      if (idx > 0)
+        kv[attr2.slice(0, idx).trim()] = attr2.slice(idx + 1).trim();
+    }
+    const sizeStr = ((_a = kv.size) != null ? _a : "").toLowerCase();
+    if (!sizeStr)
+      continue;
+    const sizeMb = parseFloat(sizeStr.replace(/mb$/, ""));
+    if (!Number.isFinite(sizeMb) || sizeMb <= 0)
+      continue;
+    formats.push({
+      format: (_b = kv.format) != null ? _b : "",
+      bitrate: Number(kv.bitrate) || 0,
+      size: Math.round(sizeMb * 1024 * 1024)
+    });
+  }
+  if (formats.length === 0)
+    return { size: 0, bitrate: 0 };
+  for (const f of formats)
+    if (f.format === "mp3" && f.bitrate === 128)
+      return { size: f.size, bitrate: f.bitrate };
+  for (const f of formats)
+    if (f.format === "mp3" && f.bitrate === 320)
+      return { size: f.size, bitrate: f.bitrate };
+  for (const f of formats)
+    if (f.format === "flac")
+      return { size: f.size, bitrate: f.bitrate };
+  const max = formats.reduce((a, b) => b.size > a.size ? b : a, formats[0]);
+  return { size: max.size, bitrate: max.bitrate };
+}
+function buildKuwoMobiUrl(rid, br, user) {
+  const params = {
+    f: "web",
+    source: "kwplayercar_ar_6.0.0.9_B_jiakong_vh.apk",
+    from: "PC",
+    type: "convert_url_with_sign",
+    br,
+    rid,
+    user
+  };
+  const qs = Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
+  return `https://mobi.kuwo.cn/mobi.s?${qs}`;
+}
+var KUWO_QUALITIES = ["128kmp3", "320kmp3", "flac"];
+function makeKuwoUser() {
+  return `C_APK_guanwang_${Date.now()}${Math.floor(Math.random() * 1e6)}`;
+}
+function buildKuwoLyricUrl(rid) {
+  return `https://m.kuwo.cn/newh5/singles/songinfoandlrc?musicId=${encodeURIComponent(rid)}&httpsStatus=1`;
+}
+function parseKuwoLyricResponse(raw) {
+  var _a, _b, _c;
+  try {
+    const data = JSON.parse(raw);
+    const lrclist = (_a = data == null ? void 0 : data.data) == null ? void 0 : _a.lrclist;
+    if (!Array.isArray(lrclist) || lrclist.length === 0)
+      return null;
+    const lines = [];
+    for (const it of lrclist) {
+      const lineLyric = (_b = it == null ? void 0 : it.lineLyric) != null ? _b : "";
+      if (!lineLyric)
+        continue;
+      const timeStr = (_c = it == null ? void 0 : it.time) != null ? _c : "";
+      if (timeStr === "" || timeStr === null || timeStr === void 0) {
+        lines.push(lineLyric);
+        continue;
+      }
+      const time = Number(timeStr);
+      if (!Number.isFinite(time) || time < 0) {
+        lines.push(lineLyric);
+        continue;
+      }
+      const totalMs = Math.round(time * 1e3);
+      const mm = Math.floor(totalMs / 6e4);
+      const ss = Math.floor(totalMs % 6e4 / 1e3);
+      const xx = Math.floor(totalMs % 1e3 / 10);
+      const stamp = `[${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}.${String(xx).padStart(2, "0")}]`;
+      lines.push(`${stamp}${lineLyric}`);
+    }
+    return lines.length > 0 ? lines.join("\n") : null;
+  } catch (e) {
+    return null;
+  }
+}
+function parseKuwoMobiResponse(raw) {
+  var _a, _b, _c, _d;
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch (e) {
+    return { url: "" };
+  }
+  const url = (_b = (_a = data == null ? void 0 : data.data) == null ? void 0 : _a.url) != null ? _b : "";
+  if (!url)
+    return { url: "" };
+  return {
+    url,
+    bitrate: typeof ((_c = data == null ? void 0 : data.data) == null ? void 0 : _c.bitrate) === "number" ? data.data.bitrate : void 0,
+    format: ((_d = data == null ? void 0 : data.data) == null ? void 0 : _d.format) || void 0
+  };
+}
+var KUWO_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36";
+function buildKuwoRcmPlaylistUrl(pn = 1, rn = 30) {
+  const params = {
+    loginUid: "0",
+    loginSid: "0",
+    appUid: "38668888",
+    pn: String(pn),
+    rn: String(rn),
+    order: "new"
+  };
+  const qs = Object.entries(params).map(([k, v]) => `${k}=${v}`).join("&");
+  return `http://wapi.kuwo.cn/api/pc/classify/playlist/getRcmPlayList?${qs}`;
+}
+function parseKuwoRcmPlaylist(raw) {
+  var _a, _b, _c, _d, _e, _f;
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch (e) {
+    return [];
+  }
+  if (Number((_a = data == null ? void 0 : data.code) != null ? _a : 0) !== 200)
+    return [];
+  const list = (_b = data == null ? void 0 : data.data) == null ? void 0 : _b.data;
+  if (!Array.isArray(list))
+    return [];
+  const out = [];
+  for (const it of list) {
+    const id = String((_c = it == null ? void 0 : it.id) != null ? _c : "");
+    const name = (_d = it == null ? void 0 : it.name) != null ? _d : "";
+    if (!id || !name)
+      continue;
+    const total = Number((_e = it == null ? void 0 : it.total) != null ? _e : 0);
+    const playCount = Number((_f = it == null ? void 0 : it.listencnt) != null ? _f : 0);
+    out.push({
+      id,
+      name,
+      coverUrl: (it == null ? void 0 : it.img) || void 0,
+      playCount: playCount > 0 ? playCount : 0,
+      trackCount: total > 0 ? total : void 0,
+      creator: (it == null ? void 0 : it.uname) || void 0
+    });
+  }
+  return out;
+}
+function buildKuwoPlaylistDetailUrl(pid, pn = 0, rn = 500) {
+  const params = {
+    op: "getlistinfo",
+    pid,
+    pn: String(pn),
+    rn: String(rn),
+    encode: "utf8",
+    keyset: "pl2012",
+    vipver: "MUSIC_9.1.1.2_BCS2",
+    newver: "1"
+  };
+  const qs = Object.entries(params).map(([k, v]) => `${k}=${v}`).join("&");
+  return `http://nplserver.kuwo.cn/pl.svc?${qs}`;
+}
+function parseKuwoPlaylistDetail(raw) {
+  var _a, _b, _c, _d;
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch (e) {
+    return [];
+  }
+  const list = data == null ? void 0 : data.musiclist;
+  if (!Array.isArray(list))
+    return [];
+  const out = [];
+  for (const it of list) {
+    const rid = String((_a = it == null ? void 0 : it.id) != null ? _a : "");
+    const name = (_b = it == null ? void 0 : it.name) != null ? _b : "";
+    if (!rid || !name)
+      continue;
+    const { size, bitrate } = parseKuwoMInfo((_c = it == null ? void 0 : it.MINFO) != null ? _c : "");
+    out.push({
+      rid,
+      name,
+      artist: (_d = it == null ? void 0 : it.artist) != null ? _d : "",
+      album: (it == null ? void 0 : it.album) || void 0,
+      duration: Number(it == null ? void 0 : it.duration) > 0 ? Number(it.duration) : void 0,
+      coverUrl: (it == null ? void 0 : it.albumpic) || void 0,
+      size: size > 0 ? size : void 0,
+      bitrate: bitrate > 0 ? bitrate : void 0
+    });
+  }
+  return out;
+}
+
+// src/downloadManager.ts
+var UA2 = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+var REFERER = "https://music.163.com";
+var QQ_REFERER = "https://y.qq.com/";
+var NETEASE_ACCOUNT_API = "https://music.163.com/weapi/nuser/account/get";
+var NETEASE_WEAPI_URL = "https://music.163.com/weapi/song/enhance/player/url";
+var NETEASE_EAPI_URL = "https://interface3.music.163.com/eapi/song/enhance/player/url/v1";
+var NETEASE_RECOMMEND_API = "https://music.163.com/weapi/personalized/playlist";
+var NETEASE_PLAYLIST_DETAIL_API = "https://music.163.com/weapi/v3/playlist/detail";
+var NETEASE_SONG_DETAIL_API = "https://music.163.com/weapi/v3/song/detail";
+var MIN_AUDIO_BYTES = 64 * 1024;
+async function ensureFolder(app, folderPath) {
+  const path = (folderPath || "").replace(/^\/+|\/+$/g, "");
+  if (!path)
+    return;
+  if (app.vault.getAbstractFileByPath(path))
+    return;
+  try {
+    await app.vault.createFolder(path);
+  } catch (e) {
+  }
+}
+async function searchCandidates(keyword, enabled, onPartial, onEmpty) {
+  const isOn = (k) => !enabled || enabled[k] !== false;
+  const mapNetease = (list) => list.filter((x) => x.id > 0 && x.name).map((s) => ({
+    source: "netease",
+    id: String(s.id),
+    neteaseId: s.id,
+    name: s.name,
+    artist: s.artists.join("/"),
+    album: s.album,
+    coverUrl: s.coverUrl,
+    duration: s.duration,
+    size: s.size,
+    bitrate: s.bitrate,
+    vip: !isNeteaseDownloadable(s.fee)
+  }));
+  const mapQq = (text) => parseQqSearchResponse(text).map((s) => ({
+    source: "qq",
+    id: s.songmid,
+    songmid: s.songmid,
+    name: s.name,
+    artist: s.artist,
+    album: s.album,
+    needsCookie: true,
+    duration: s.duration,
+    size: s.size,
+    bitrate: s.bitrate,
+    coverUrl: s.coverUrl,
+    vip: s.vipOnly
+  }));
+  const mapKugou = (text) => parseKugouSearchResponse(text).map((s) => ({
+    source: "kugou",
+    id: s.hash,
+    name: s.name,
+    artist: s.artist,
+    album: s.album,
+    coverUrl: s.coverUrl,
+    duration: s.duration,
+    size: s.size,
+    bitrate: s.bitrate,
+    vip: s.privilege === 10
+  }));
+  const mapKuwo = (text) => parseKuwoSearchResponse(text).map((s) => ({
+    source: "kuwo",
+    id: s.rid,
+    kuwoRid: s.rid,
+    name: s.name,
+    artist: s.artist,
+    album: s.album,
+    duration: s.duration,
+    size: s.size,
+    bitrate: s.bitrate,
+    coverUrl: s.coverUrl
+  }));
+  const ok = (songs) => ({ songs, failed: false });
+  const fail = () => ({ songs: [], failed: true });
+  const tasks = [
+    isOn("netease") ? searchSong(keyword).then(mapNetease).then(ok).catch(fail) : Promise.resolve({ songs: [], failed: false }),
+    // QQ/酷狗/酷我：请求层失败（httpGetTextChecked.failed）才算「网络错误」，成功但空结果不算
+    isOn("qq") ? httpGetTextChecked(buildQqSearchUrl(keyword)).then(({ text, failed }) => failed ? fail() : ok(mapQq(text))).catch(fail) : Promise.resolve({ songs: [], failed: false }),
+    isOn("kugou") ? httpGetTextChecked(buildKugouSearchUrl(keyword)).then(({ text, failed }) => failed ? fail() : ok(mapKugou(text))).catch(fail) : Promise.resolve({ songs: [], failed: false }),
+    isOn("kuwo") ? httpGetTextChecked(buildKuwoSearchUrl(keyword)).then(({ text, failed }) => failed ? fail() : ok(mapKuwo(text))).catch(fail) : Promise.resolve({ songs: [], failed: false })
+  ];
+  for (const t of tasks) {
+    void t.then((r) => {
+      if (r.songs.length > 0)
+        onPartial == null ? void 0 : onPartial(r.songs);
+    });
+  }
+  const all = await Promise.all(tasks);
+  const out = all.flatMap((r) => r.songs);
+  if (out.length === 0 && onEmpty) {
+    const enabledCount = ["netease", "qq", "kugou", "kuwo"].filter((k) => isOn(k)).length;
+    if (enabledCount > 0) {
+      const failedCount = all.filter((r) => r.failed).length;
+      onEmpty(failedCount === enabledCount);
+    } else {
+      onEmpty(false);
+    }
+  }
+  return out.sort((a, b) => {
+    const sa = songSimilarityScore(keyword, a.name, a.artist);
+    const sb = songSimilarityScore(keyword, b.name, b.artist);
+    if (sb !== sa)
+      return sb - sa;
+    if (a.name.length !== b.name.length)
+      return a.name.length - b.name.length;
+    return a.name.localeCompare(b.name);
+  });
+}
+async function fetchRecommendedPlaylists(source, limit = 150) {
+  switch (source) {
+    case "netease": {
+      const { params, encSecKey } = encryptWeApi(buildRecommendedPlaylistsBody(limit));
+      const body = `params=${encodeURIComponent(params)}&encSecKey=${encodeURIComponent(encSecKey)}`;
+      const res = await httpPost(NETEASE_RECOMMEND_API, body);
+      if (!res)
+        return [];
+      return parseRecommendedPlaylists(new TextDecoder().decode(res.data)).map((p) => ({
+        source: "netease",
+        id: p.id,
+        name: p.name,
+        coverUrl: p.coverUrl,
+        playCount: p.playCount,
+        trackCount: p.trackCount
+      }));
+    }
+    case "qq": {
+      const text = await httpGetText(buildQqDissListUrl(0, limit - 1), { Referer: QQ_REFERER });
+      const list = parseQqDissList(text);
+      if (list.length > 0) {
+        const ids = list.map((p) => p.id);
+        const counts = {};
+        const BATCH = 30;
+        for (let i = 0; i < ids.length; i += BATCH) {
+          const chunk2 = ids.slice(i, i + BATCH);
+          const countsRes = await httpPost(QQ_MUSICU_URL, buildQqDissCountsBody(chunk2), {
+            "Content-Type": "application/json",
+            Origin: "https://y.qq.com",
+            Referer: "https://y.qq.com/n/yqq/playsquare/"
+          });
+          if (countsRes) {
+            Object.assign(counts, parseQqDissCounts(new TextDecoder().decode(countsRes.data), chunk2));
+          }
+        }
+        if (Object.keys(counts).length > 0) {
+          return list.map((p) => {
+            var _a;
+            return { source: "qq", ...p, trackCount: (_a = counts[p.id]) != null ? _a : void 0 };
+          });
+        }
+      }
+      return list.map((p) => ({ source: "qq", ...p }));
+    }
+    case "kugou": {
+      const text = await httpGetText(buildKugouSpecialListUrl(1, limit), {
+        "User-Agent": KUGOU_MOBILE_UA,
+        Referer: KUGOU_MOBILE_REFERER
+      });
+      return parseKugouSpecialList(text).map((p) => ({ source: "kugou", ...p }));
+    }
+    case "kuwo": {
+      const text = await httpGetText(buildKuwoRcmPlaylistUrl(1, limit), { Referer: "http://www.kuwo.cn/" });
+      return parseKuwoRcmPlaylist(text).map((p) => ({ source: "kuwo", ...p }));
+    }
+    default:
+      return [];
+  }
+}
+async function fetchPlaylistSongs(source, playlistId) {
+  switch (source) {
+    case "netease":
+      return fetchNeteasePlaylistSongs(playlistId);
+    case "qq": {
+      let songs = parseQqDissDetail(await httpGetText(buildQqDissDetailUrl(playlistId), { Referer: QQ_REFERER }));
+      if (songs.length === 0) {
+        const v2Res = await httpPost(QQ_MUSICU_URL, buildQqDissDetailV2Body(playlistId), {
+          "Content-Type": "application/json",
+          Origin: "https://y.qq.com",
+          Referer: `https://y.qq.com/n/yqq/playsquare/${playlistId}.html`
+        });
+        if (v2Res)
+          songs = parseQqDissDetailV2(new TextDecoder().decode(v2Res.data));
+      }
+      return songs.map((s) => ({
+        source: "qq",
+        id: s.songmid,
+        songmid: s.songmid,
+        name: s.name,
+        artist: s.artist,
+        album: s.album,
+        coverUrl: s.coverUrl,
+        duration: s.duration,
+        size: s.size,
+        bitrate: s.bitrate,
+        needsCookie: true,
+        vip: s.vipOnly
+      }));
+    }
+    case "kugou": {
+      const text = await httpGetText(buildKugouSpecialDetailUrl(playlistId, 1, 100), {
+        "User-Agent": KUGOU_MOBILE_UA,
+        Referer: KUGOU_MOBILE_REFERER
+      });
+      return parseKugouSpecialDetail(text).map((s) => ({
+        source: "kugou",
+        id: s.hash,
+        name: s.name,
+        artist: s.artist,
+        duration: s.duration,
+        size: s.size,
+        bitrate: s.bitrate,
+        vip: s.privilege === 10
+      }));
+    }
+    case "kuwo": {
+      const text = await httpGetText(buildKuwoPlaylistDetailUrl(playlistId), { Referer: "http://www.kuwo.cn/" });
+      return parseKuwoPlaylistDetail(text).map((s) => ({
+        source: "kuwo",
+        id: s.rid,
+        kuwoRid: s.rid,
+        name: s.name,
+        artist: s.artist,
+        album: s.album,
+        coverUrl: s.coverUrl,
+        duration: s.duration,
+        size: s.size,
+        bitrate: s.bitrate
+      }));
+    }
+    default:
+      return [];
+  }
+}
+async function fetchNeteasePlaylistSongs(playlistId) {
+  const detailReq = encryptWeApi(buildPlaylistDetailBody(playlistId));
+  const detailBody = `params=${encodeURIComponent(detailReq.params)}&encSecKey=${encodeURIComponent(detailReq.encSecKey)}`;
+  const detailRes = await httpPost(NETEASE_PLAYLIST_DETAIL_API, detailBody);
+  if (!detailRes)
+    return [];
+  const trackIds = parsePlaylistTrackIds(new TextDecoder().decode(detailRes.data));
+  if (trackIds.length === 0)
+    return [];
+  const out = [];
+  for (let i = 0; i < trackIds.length; i += 100) {
+    const batch = trackIds.slice(i, i + 100);
+    const songReq = encryptWeApi(buildSongDetailBody(batch));
+    const songBody = `params=${encodeURIComponent(songReq.params)}&encSecKey=${encodeURIComponent(songReq.encSecKey)}`;
+    const songRes = await httpPost(NETEASE_SONG_DETAIL_API, songBody);
+    if (!songRes)
+      continue;
+    const songs = parseSongDetailSongs(new TextDecoder().decode(songRes.data));
+    for (const s of songs) {
+      out.push({
+        source: "netease",
+        id: String(s.id),
+        neteaseId: s.id,
+        name: s.name,
+        artist: s.artist,
+        album: s.album,
+        coverUrl: s.coverUrl,
+        duration: s.duration,
+        size: s.size,
+        bitrate: s.bitrate,
+        vip: !isNeteaseDownloadable(s.fee)
+      });
+    }
+  }
+  return out;
+}
+async function testPlatformConnection(source, cookie) {
+  const c = (cookie != null ? cookie : "").trim();
+  if (source === "netease") {
+    if (!c)
+      return { ok: false, message: "\u672A\u7C98\u8D34\u7F51\u6613\u4E91 Cookie" };
+    const { params, encSecKey } = encryptWeApi(JSON.stringify({ csrf_token: "" }));
+    const body = `params=${encodeURIComponent(params)}&encSecKey=${encodeURIComponent(encSecKey)}`;
+    const res = await httpPost(NETEASE_ACCOUNT_API, body, { "Cookie": c });
+    if (!res)
+      return { ok: false, message: "\u8BF7\u6C42\u5931\u8D25\uFF08\u7F51\u7EDC\u6216\u63A5\u53E3\u53D8\u66F4\uFF09" };
+    const info = parseVipAccountResponse(new TextDecoder().decode(res.data));
+    if (!info.ok)
+      return { ok: false, message: "\u7F51\u6613\u4E91 Cookie \u65E0\u6548\u6216\u5DF2\u8FC7\u671F\uFF0C\u8BF7\u91CD\u65B0\u767B\u5F55\u590D\u5236" };
+    return { ok: true, message: info.vipType !== 0 ? "\u7F51\u6613\u4E91 Cookie \u6709\u6548\uFF08\u4F1A\u5458\uFF09" : "\u7F51\u6613\u4E91 Cookie \u6709\u6548\uFF08\u666E\u901A\u8D26\u53F7\uFF09" };
+  }
+  if (source === "qq") {
+    if (!c)
+      return { ok: false, message: "\u672A\u7C98\u8D34 QQ Cookie" };
+    const uin = extractQqUin(c);
+    const res = await httpGet(buildQqUserInfoUrl(uin), 0, void 0, { "Referer": QQ_REFERER, "Cookie": c });
+    if (!res)
+      return { ok: false, message: "\u8BF7\u6C42\u5931\u8D25\uFF08\u7F51\u7EDC\u6216\u63A5\u53E3\u53D8\u66F4\uFF09" };
+    const info = parseQqUserInfo(new TextDecoder().decode(res.data));
+    return info.ok ? { ok: true, message: "QQ Cookie \u6709\u6548" } : { ok: false, message: `QQ Cookie \u65E0\u6548\u6216\u5DF2\u8FC7\u671F\uFF08code=${info.code}\uFF09\uFF0C\u8BF7\u91CD\u65B0\u767B\u5F55\u590D\u5236` };
+  }
+  if (source === "kugou") {
+    if (!c)
+      return { ok: false, message: "\u672A\u7C98\u8D34\u9177\u72D7 Cookie" };
+    const res = await httpGet(KUGOU_VIP_ROLEINFO_URL, 0, void 0, {
+      "User-Agent": UA2,
+      "Accept": "*/*",
+      "Host": "vip.kugou.com",
+      "Cookie": c
+    });
+    if (!res)
+      return { ok: false, message: "\u8BF7\u6C42\u5931\u8D25\uFF08\u7F51\u7EDC\u6216\u63A5\u53E3\u53D8\u66F4\uFF09" };
+    const info = parseKugouRoleinfo(new TextDecoder().decode(res.data));
+    return info.ok ? { ok: true, message: "\u9177\u72D7 Cookie \u6709\u6548" } : { ok: false, message: `\u9177\u72D7 Cookie \u65E0\u6548\u6216\u5DF2\u8FC7\u671F\uFF08errno=${info.errno}\uFF09\uFF0C\u8BF7\u91CD\u65B0\u767B\u5F55\u590D\u5236` };
+  }
+  if (source === "kuwo") {
+    return { ok: true, message: "\u9177\u6211\u514D\u767B\u5F55\u5373\u53EF\u4E0B\u8F7D\uFF0CCookie \u975E\u5FC5\u9700\uFF08\u9884\u7559\uFF09" };
+  }
+  return { ok: false, message: `\u672A\u77E5\u5E73\u53F0\uFF1A${source}` };
+}
+async function downloadSong(plugin, song, cookies, onProgress) {
+  const attempt = async () => {
+    var _a;
+    if (song.source === "netease") {
+      const netease = {
+        id: (_a = song.neteaseId) != null ? _a : 0,
+        name: song.name,
+        artists: song.artist ? song.artist.split("/") : [],
+        album: song.album,
+        coverUrl: song.coverUrl
+      };
+      return downloadNetEase(plugin, netease, cookies, onProgress);
+    }
+    if (song.source === "qq") {
+      return downloadQq(plugin, song, cookies, onProgress);
+    }
+    if (song.source === "kugou") {
+      return downloadKugou(plugin, song, onProgress);
+    }
+    if (song.source === "kuwo") {
+      return downloadKuwo(plugin, song, onProgress);
+    }
+    return { ok: false, message: `\u4E0D\u652F\u6301\u7684\u6765\u6E90\uFF1A${song.source}` };
+  };
+  const first = await attempt();
+  if (first.ok)
+    return first;
+  onProgress == null ? void 0 : onProgress(null, "\u91CD\u8BD5\u4E2D\u2026");
+  return attempt();
+}
+var previewCache = /* @__PURE__ */ new Map();
+function getPreviewCacheCount() {
+  return previewCache.size;
+}
+function getPreviewCacheSize() {
+  let total = 0;
+  for (const v of previewCache.values())
+    total += v.data.byteLength;
+  return total;
+}
+function clearPreviewCache() {
+  previewCache.clear();
+}
+async function previewAudio(song, cookies, onProgress) {
+  var _a, _b, _c;
+  const toExt = (b) => looksLikeFlac(b) ? "flac" : looksLikeM4a(b) ? "m4a" : "mp3";
+  const bytesProgress = (label) => (received, total) => {
+    onProgress == null ? void 0 : onProgress(total && total > 0 ? Math.min(100, Math.round(received / total * 100)) : null, label);
+  };
+  const cacheKey = `${song.source}:${song.id}`;
+  const cached = previewCache.get(cacheKey);
+  if (cached) {
+    return { ok: true, message: "\u5DF2\u4ECE\u7F13\u5B58\u64AD\u653E", data: cached.data, ext: cached.ext, fromCache: true };
+  }
+  try {
+    if (song.source === "netease" && song.neteaseId) {
+      const cookie = ((_a = cookies.netease) != null ? _a : "").trim();
+      let audio = null;
+      if (cookie) {
+        audio = await downloadNeteaseVipBytes(song.neteaseId, cookie, (r, t, label) => bytesProgress(label)(r, t));
+      }
+      if (!audio) {
+        onProgress == null ? void 0 : onProgress(null, `\u6B63\u5728\u8BD5\u542C ${song.name}\u2026`);
+        audio = await downloadAudioBytes(song.neteaseId, bytesProgress(`\u6B63\u5728\u8BD5\u542C ${song.name}`));
+      }
+      if (!audio)
+        return { ok: false, message: "\u8BD5\u542C\u5931\u8D25\uFF08\u53EF\u80FD VIP \u53D7\u9650\u6216\u63A5\u53E3\u53D8\u66F4\uFF09" };
+      previewCache.set(cacheKey, { data: audio, ext: toExt(audio) });
+      return { ok: true, message: "", data: audio, ext: toExt(audio) };
+    }
+    if (song.source === "qq") {
+      const qqCookie = ((_b = cookies.qq) != null ? _b : "").trim();
+      if (!qqCookie) {
+        return { ok: false, message: "\u8BD5\u542C QQ \u6B4C\u66F2\u9700\u5728\u8BBE\u7F6E \u2192 \u591A\u5E73\u53F0 Cookie \u7C98\u8D34 QQ \u97F3\u4E50\u767B\u5F55 Cookie" };
+      }
+      onProgress == null ? void 0 : onProgress(null, `\u6B63\u5728\u8BD5\u542C ${song.name}\u2026`);
+      const guid = makeGuid();
+      const uin = extractQqUin(qqCookie);
+      const vkeyRes = await httpGet(buildQqVkeyUrl(buildQqVkeyBody((_c = song.songmid) != null ? _c : "", guid, uin)), 0, void 0, { "Referer": QQ_REFERER, "Cookie": qqCookie });
+      if (!vkeyRes)
+        return { ok: false, message: "\u83B7\u53D6 QQ \u64AD\u653E\u5730\u5740\u5931\u8D25" };
+      const purl = parseQqPurl(new TextDecoder().decode(vkeyRes.data));
+      if (!purl)
+        return { ok: false, message: "QQ Cookie \u65E0\u6548\u6216\u5DF2\u8FC7\u671F\uFF0C\u8BF7\u5230 y.qq.com \u91CD\u65B0\u767B\u5F55\u590D\u5236" };
+      const audioUrl = /^https?:\/\//i.test(purl) ? purl : `https://dl.stream.qqmusic.qq.com/${purl}`;
+      const audioRes = await httpGet(audioUrl, 0, bytesProgress(`\u6B63\u5728\u8BD5\u542C ${song.name}`), { "Referer": QQ_REFERER, "Cookie": qqCookie });
+      const audio = audioRes == null ? void 0 : audioRes.data;
+      if (!audio || audio.byteLength < MIN_AUDIO_BYTES)
+        return { ok: false, message: "\u8BD5\u542C\u5931\u8D25\uFF08\u53EF\u80FD\u4ED8\u8D39\u53D7\u9650\u6216 Cookie \u6743\u9650\u4E0D\u8DB3\uFF09" };
+      previewCache.set(cacheKey, { data: audio, ext: toExt(audio) });
+      return { ok: true, message: "", data: audio, ext: toExt(audio) };
+    }
+    if (song.source === "kugou" && song.id) {
+      onProgress == null ? void 0 : onProgress(null, `\u6B63\u5728\u8BD5\u542C ${song.name}\u2026`);
+      let info = { url: "" };
+      const songInfoRes = await httpGet(buildKugouSongInfoUrl(song.id), 0, void 0, {
+        "User-Agent": KUGOU_MOBILE_UA,
+        "Referer": KUGOU_MOBILE_REFERER
+      });
+      if (songInfoRes)
+        info = parseKugouSongInfoResponse(new TextDecoder().decode(songInfoRes.data));
+      if (!info.url) {
+        const trRes = await httpGet(buildKugouTrackercdnUrl(song.id), 0, void 0, { "User-Agent": UA2, "Referer": KUGOU_PC_REFERER });
+        if (trRes)
+          info = parseKugouTrackercdnResponse(new TextDecoder().decode(trRes.data));
+      }
+      if (!info.url)
+        return { ok: false, message: "\u83B7\u53D6\u9177\u72D7\u64AD\u653E\u5730\u5740\u5931\u8D25\uFF08\u53EF\u80FD VIP \u53D7\u9650\u6216\u63A5\u53E3\u53D8\u66F4\uFF09" };
+      const audioRes = await httpGet(info.url, 0, bytesProgress(`\u6B63\u5728\u8BD5\u542C ${song.name}`), { "User-Agent": UA2, "Referer": KUGOU_PC_REFERER });
+      const audio = audioRes == null ? void 0 : audioRes.data;
+      if (!audio || audio.byteLength < MIN_AUDIO_BYTES)
+        return { ok: false, message: "\u8BD5\u542C\u5931\u8D25\uFF08\u53EF\u80FD\u53D7\u9650\u6216\u63A5\u53E3\u53D8\u66F4\uFF09" };
+      previewCache.set(cacheKey, { data: audio, ext: toExt(audio) });
+      return { ok: true, message: "", data: audio, ext: toExt(audio) };
+    }
+    if (song.source === "kuwo" && (song.kuwoRid || song.id)) {
+      onProgress == null ? void 0 : onProgress(null, `\u6B63\u5728\u8BD5\u542C ${song.name}\u2026`);
+      const rid = song.kuwoRid || song.id;
+      let audioUrl = "";
+      for (const br of KUWO_QUALITIES) {
+        const res = await httpGet(buildKuwoMobiUrl(rid, br, makeKuwoUser()), 0, void 0, { "User-Agent": KUWO_UA });
+        if (!res)
+          continue;
+        const info = parseKuwoMobiResponse(new TextDecoder().decode(res.data));
+        if (info.url) {
+          audioUrl = info.url;
+          break;
+        }
+      }
+      if (!audioUrl)
+        return { ok: false, message: "\u83B7\u53D6\u9177\u6211\u64AD\u653E\u5730\u5740\u5931\u8D25\uFF08\u53EF\u80FD\u7248\u6743\u53D7\u9650\uFF09" };
+      const audioRes = await httpGet(audioUrl, 0, bytesProgress(`\u6B63\u5728\u8BD5\u542C ${song.name}`), { "User-Agent": KUWO_UA });
+      const audio = audioRes == null ? void 0 : audioRes.data;
+      if (!audio || audio.byteLength < MIN_AUDIO_BYTES)
+        return { ok: false, message: "\u8BD5\u542C\u5931\u8D25\uFF08\u53EF\u80FD\u7248\u6743\u53D7\u9650\uFF09" };
+      previewCache.set(cacheKey, { data: audio, ext: toExt(audio) });
+      return { ok: true, message: "", data: audio, ext: toExt(audio) };
+    }
+    return { ok: false, message: `\u4E0D\u652F\u6301\u7684\u6765\u6E90\uFF1A${song.source}` };
+  } catch (e) {
+    return { ok: false, message: `\u8BD5\u542C\u51FA\u9519\uFF1A${e instanceof Error ? e.message : String(e)}` };
+  }
+}
+async function downloadAudioBytes(songId, onProgress) {
+  const url = `https://music.163.com/song/media/outer/url?id=${songId}.mp3`;
+  const res = await httpGet(url, 0, onProgress);
+  if (!res || res.data.byteLength < MIN_AUDIO_BYTES)
+    return null;
+  return res.data;
+}
+async function downloadNetEase(plugin, song, cookies, onProgress) {
+  var _a;
+  const cookie = ((_a = cookies == null ? void 0 : cookies.netease) != null ? _a : "").trim();
+  let audio = null;
+  let qualityNote = "";
+  if (cookie) {
+    audio = await downloadNeteaseVipBytes(song.id, cookie, (received, total, label) => {
+      onProgress == null ? void 0 : onProgress(total && total > 0 ? Math.min(100, Math.round(received / total * 100)) : null, label);
+    });
+    if (audio)
+      qualityNote = "\uFF08VIP \u9AD8\u97F3\u8D28\uFF09";
+  }
+  if (!audio) {
+    onProgress == null ? void 0 : onProgress(null, "\u6B63\u5728\u4E0B\u8F7D\u97F3\u9891\u2026");
+    audio = await downloadAudioBytes(song.id, (received, total) => {
+      if (total && total > 0) {
+        onProgress == null ? void 0 : onProgress(Math.min(100, Math.round(received / total * 100)), "\u6B63\u5728\u4E0B\u8F7D\u97F3\u9891");
+      } else {
+        onProgress == null ? void 0 : onProgress(null, "\u6B63\u5728\u4E0B\u8F7D\u97F3\u9891\u2026");
+      }
+    });
+  }
+  if (!audio) {
+    return { ok: false, message: "\u4E0B\u8F7D\u5931\u8D25\uFF08\u53EF\u80FD VIP \u53D7\u9650\u3001\u533A\u57DF\u9650\u5236\u6216\u63A5\u53E3\u53D8\u66F4\uFF09" };
+  }
+  onProgress == null ? void 0 : onProgress(null, "\u6B63\u5728\u83B7\u53D6\u6B4C\u8BCD\u4E0E\u5C01\u9762\u2026");
+  const [lyric, cover] = await Promise.all([
+    fetchLyric(song.id).catch(() => null),
+    song.coverUrl ? downloadImage(song.coverUrl).catch(() => null) : Promise.resolve(null)
+  ]);
+  onProgress == null ? void 0 : onProgress(null, "\u6B63\u5728\u5185\u5D4C\u6807\u7B7E\u5E76\u5199\u5165\u2026");
+  const tags = {
+    title: song.name,
+    artist: song.artists.join("/"),
+    album: song.album,
+    lyrics: lyric != null ? lyric : void 0,
+    cover: cover != null ? cover : void 0
+  };
+  const enriched = embedTagsIntoBytes(audio, tags);
+  const data = enriched != null ? enriched : audio;
+  const ext = looksLikeFlac(audio) ? "flac" : looksLikeMp3(audio) ? "mp3" : looksLikeM4a(audio) ? "m4a" : "mp3";
+  const artist = song.artists.join("/");
+  const targetPath = await resolveDownloadTargetUnique(plugin, buildSongFilename(artist, song.name, ext), "netease");
+  const ok = await writeAudioToVault(plugin.app, targetPath, data);
+  if (!ok)
+    return { ok: false, message: "\u5199\u5165\u5931\u8D25\uFF0C\u5DF2\u8FD8\u539F\u539F\u6587\u4EF6" };
+  void plugin.scanLyricSongs();
+  const metaNote = enriched ? lyric && cover ? "\uFF08\u5DF2\u5185\u5D4C\u6B4C\u8BCD+\u5C01\u9762\uFF09" : lyric ? "\uFF08\u5DF2\u5185\u5D4C\u6B4C\u8BCD\uFF09" : cover ? "\uFF08\u5DF2\u5185\u5D4C\u5C01\u9762\uFF09" : "" : "\uFF08\u672A\u5185\u5D4C\u6807\u7B7E\uFF09";
+  return { ok: true, message: `\u5DF2\u4E0B\u8F7D ${formatBytes(data.byteLength)}\uFF1A${targetPath}${qualityNote}${metaNote}` };
+}
+async function downloadNeteaseVipBytes(songId, cookie, onProgress) {
+  const { params, encSecKey } = encryptWeApi(JSON.stringify({ csrf_token: "" }));
+  const accountBody = `params=${encodeURIComponent(params)}&encSecKey=${encodeURIComponent(encSecKey)}`;
+  const accountRes = await httpPost(NETEASE_ACCOUNT_API, accountBody, { "Cookie": cookie });
+  if (!accountRes)
+    return null;
+  const vip = parseVipAccountResponse(new TextDecoder().decode(accountRes.data));
+  if (!vip.ok || vip.vipType === 0)
+    return null;
+  const eapiPayload = (level) => JSON.stringify({
+    ids: [songId],
+    level,
+    encodeType: "flac",
+    header: JSON.stringify({ os: "pc", appver: "", osver: "", deviceId: "pyncm!", requestId: String(Date.now()) })
+  });
+  for (const level of ["lossless", "hires", "exhigh"]) {
+    const eapiParams = encryptEApi("/eapi/song/enhance/player/url/v1", eapiPayload(level));
+    const eapiRes = await httpPost(NETEASE_EAPI_URL, `params=${encodeURIComponent(eapiParams)}`, { "Cookie": cookie });
+    if (!eapiRes)
+      continue;
+    const url = parseNeteasePlayUrl(new TextDecoder().decode(eapiRes.data));
+    if (url) {
+      const audio = await downloadAudioFrom(url, onProgress, "\u6B63\u5728\u4E0B\u8F7D\u65E0\u635F\u97F3\u9891");
+      if (audio)
+        return audio;
+    }
+  }
+  const weapiReq = JSON.stringify({ ids: [String(songId)], br: 32e4 });
+  const weapi = encryptWeApi(weapiReq);
+  const weapiBody = `params=${encodeURIComponent(weapi.params)}&encSecKey=${encodeURIComponent(weapi.encSecKey)}`;
+  const weapiRes = await httpPost(NETEASE_WEAPI_URL, weapiBody, { "Cookie": cookie });
+  if (!weapiRes)
+    return null;
+  const weapiUrl = parseNeteasePlayUrl(new TextDecoder().decode(weapiRes.data));
+  if (!weapiUrl)
+    return null;
+  return downloadAudioFrom(weapiUrl, onProgress, "\u6B63\u5728\u4E0B\u8F7D VIP \u97F3\u9891");
+}
+function parseNeteasePlayUrl(raw) {
+  var _a, _b, _c, _d;
+  try {
+    const data = JSON.parse(raw);
+    if (Number((_a = data == null ? void 0 : data.code) != null ? _a : 0) !== 200)
+      return "";
+    const url = (_d = (_c = (_b = data == null ? void 0 : data.data) == null ? void 0 : _b[0]) == null ? void 0 : _c.url) != null ? _d : "";
+    return /^https?:\/\//i.test(url) ? url : "";
+  } catch (e) {
+    return "";
+  }
+}
+async function downloadAudioFrom(url, onProgress, label) {
+  var _a;
+  const res = await httpGet(url, 0, (received, total) => onProgress(received, total, label));
+  if (!res || res.data.byteLength < MIN_AUDIO_BYTES)
+    return null;
+  const ct = (_a = res.headers["content-type"]) != null ? _a : "";
+  if (ct && !ct.startsWith("audio/"))
+    return null;
+  return res.data;
+}
+async function downloadQq(plugin, song, cookies, onProgress) {
+  var _a, _b;
+  const qqCookie = ((_a = cookies.qq) != null ? _a : "").trim();
+  if (!qqCookie) {
+    return { ok: false, message: "\u4E0B\u8F7D QQ \u6B4C\u66F2\u9700\u5728\u8BBE\u7F6E \u2192 \u591A\u5E73\u53F0 Cookie \u7C98\u8D34 QQ \u97F3\u4E50\u767B\u5F55 Cookie" };
+  }
+  onProgress == null ? void 0 : onProgress(null, "\u6B63\u5728\u83B7\u53D6 QQ \u64AD\u653E\u5730\u5740\u2026");
+  const guid = makeGuid();
+  const uin = extractQqUin(qqCookie);
+  const vkeyUrl = buildQqVkeyUrl(buildQqVkeyBody((_b = song.songmid) != null ? _b : "", guid, uin));
+  const vkeyRes = await httpGet(vkeyUrl, 0, void 0, { "Referer": QQ_REFERER, "Cookie": qqCookie });
+  if (!vkeyRes)
+    return { ok: false, message: "\u83B7\u53D6 QQ \u64AD\u653E\u5730\u5740\u5931\u8D25" };
+  const purl = parseQqPurl(new TextDecoder().decode(vkeyRes.data));
+  if (!purl)
+    return { ok: false, message: "QQ Cookie \u65E0\u6548\u6216\u5DF2\u8FC7\u671F\uFF0C\u8BF7\u5230 y.qq.com \u91CD\u65B0\u767B\u5F55\u590D\u5236" };
+  const audioUrl = /^https?:\/\//i.test(purl) ? purl : `https://dl.stream.qqmusic.qq.com/${purl}`;
+  onProgress == null ? void 0 : onProgress(null, "\u6B63\u5728\u4E0B\u8F7D QQ \u97F3\u9891\u2026");
+  const audioRes = await httpGet(audioUrl, 0, (received, total) => {
+    if (total && total > 0)
+      onProgress == null ? void 0 : onProgress(Math.min(100, Math.round(received / total * 100)), "\u6B63\u5728\u4E0B\u8F7D QQ \u97F3\u9891");
+    else
+      onProgress == null ? void 0 : onProgress(null, "\u6B63\u5728\u4E0B\u8F7D QQ \u97F3\u9891\u2026");
+  }, { "Referer": QQ_REFERER, "Cookie": qqCookie });
+  const audio = audioRes == null ? void 0 : audioRes.data;
+  if (!audio || audio.byteLength < MIN_AUDIO_BYTES)
+    return { ok: false, message: "\u4E0B\u8F7D\u5931\u8D25\uFF08\u53EF\u80FD\u4ED8\u8D39\u53D7\u9650\u6216 Cookie \u6743\u9650\u4E0D\u8DB3\uFF09" };
+  const isMp3 = looksLikeMp3(audio);
+  const ext = isMp3 ? "mp3" : looksLikeM4a(audio) ? "m4a" : "mp3";
+  let data = audio;
+  if (isMp3) {
+    const enriched = embedTagsIntoBytes(audio, { title: song.name, artist: song.artist, album: song.album });
+    if (enriched)
+      data = enriched;
+  }
+  const targetPath = await resolveDownloadTargetUnique(plugin, buildSongFilename(song.artist, song.name, ext), "qq");
+  const ok = await writeAudioToVault(plugin.app, targetPath, data);
+  if (!ok)
+    return { ok: false, message: "\u5199\u5165\u5931\u8D25\uFF0C\u5DF2\u8FD8\u539F\u539F\u6587\u4EF6" };
+  void plugin.scanLyricSongs();
+  return { ok: true, message: `\u5DF2\u4E0B\u8F7D QQ\uFF08${ext}\uFF09${formatBytes(data.byteLength)}\uFF1A${targetPath}` };
+}
+async function downloadKugou(plugin, song, onProgress) {
+  if (song.vip) {
+    return { ok: false, message: "\u8BE5\u9177\u72D7\u6B4C\u66F2\u4E3A VIP \u4ED8\u8D39\u66F2\u76EE\uFF0C\u65E0\u6CD5\u514D\u8D39\u4E0B\u8F7D" };
+  }
+  const hash = song.id || "";
+  if (!hash)
+    return { ok: false, message: "\u7F3A\u5C11\u9177\u72D7\u6B4C\u66F2 hash" };
+  onProgress == null ? void 0 : onProgress(null, "\u6B63\u5728\u83B7\u53D6\u9177\u72D7\u64AD\u653E\u5730\u5740\u2026");
+  let info = { url: "" };
+  const songInfoRes = await httpGet(buildKugouSongInfoUrl(hash), 0, void 0, {
+    "User-Agent": KUGOU_MOBILE_UA,
+    "Referer": KUGOU_MOBILE_REFERER
+  });
+  if (songInfoRes) {
+    info = parseKugouSongInfoResponse(new TextDecoder().decode(songInfoRes.data));
+  }
+  if (!info.url) {
+    const trRes = await httpGet(buildKugouTrackercdnUrl(hash), 0, void 0, {
+      "User-Agent": UA2,
+      "Referer": KUGOU_PC_REFERER
+    });
+    if (trRes)
+      info = parseKugouTrackercdnResponse(new TextDecoder().decode(trRes.data));
+  }
+  if (!info.url)
+    return { ok: false, message: "\u83B7\u53D6\u9177\u72D7\u64AD\u653E\u5730\u5740\u5931\u8D25\uFF08\u53EF\u80FD VIP \u53D7\u9650\u6216\u63A5\u53E3\u53D8\u66F4\uFF09" };
+  onProgress == null ? void 0 : onProgress(null, "\u6B63\u5728\u4E0B\u8F7D\u9177\u72D7\u97F3\u9891\u2026");
+  const audioRes = await httpGet(info.url, 0, (received, total) => {
+    if (total && total > 0)
+      onProgress == null ? void 0 : onProgress(Math.min(100, Math.round(received / total * 100)), "\u6B63\u5728\u4E0B\u8F7D\u9177\u72D7\u97F3\u9891");
+    else
+      onProgress == null ? void 0 : onProgress(null, "\u6B63\u5728\u4E0B\u8F7D\u9177\u72D7\u97F3\u9891\u2026");
+  }, { "User-Agent": UA2, "Referer": KUGOU_PC_REFERER });
+  const audio = audioRes == null ? void 0 : audioRes.data;
+  if (!audio || audio.byteLength < MIN_AUDIO_BYTES)
+    return { ok: false, message: "\u4E0B\u8F7D\u5931\u8D25\uFF08\u53EF\u80FD\u53D7\u9650\u6216\u63A5\u53E3\u53D8\u66F4\uFF09" };
+  const isMp3 = looksLikeMp3(audio);
+  const ext = isMp3 ? "mp3" : looksLikeM4a(audio) ? "m4a" : "mp3";
+  let data = audio;
+  if (isMp3) {
+    const enriched = embedTagsIntoBytes(audio, { title: song.name, artist: song.artist, album: song.album });
+    if (enriched)
+      data = enriched;
+  }
+  const targetPath = await resolveDownloadTargetUnique(plugin, buildSongFilename(song.artist, song.name, ext), "kugou");
+  const ok = await writeAudioToVault(plugin.app, targetPath, data);
+  if (!ok)
+    return { ok: false, message: "\u5199\u5165\u5931\u8D25\uFF0C\u5DF2\u8FD8\u539F\u539F\u6587\u4EF6" };
+  void plugin.scanLyricSongs();
+  return { ok: true, message: `\u5DF2\u4E0B\u8F7D\u9177\u72D7\uFF08${ext}\uFF09${formatBytes(data.byteLength)}\uFF1A${targetPath}` };
+}
+async function downloadKuwo(plugin, song, onProgress) {
+  const rid = song.kuwoRid || song.id || "";
+  if (!rid)
+    return { ok: false, message: "\u7F3A\u5C11\u9177\u6211\u6B4C\u66F2 rid" };
+  onProgress == null ? void 0 : onProgress(null, "\u6B63\u5728\u83B7\u53D6\u9177\u6211\u64AD\u653E\u5730\u5740\u2026");
+  let audioUrl = "";
+  let quality = "";
+  for (const br of KUWO_QUALITIES) {
+    const res = await httpGet(buildKuwoMobiUrl(rid, br, makeKuwoUser()), 0, void 0, { "User-Agent": KUWO_UA });
+    if (!res)
+      continue;
+    const info = parseKuwoMobiResponse(new TextDecoder().decode(res.data));
+    if (info.url) {
+      audioUrl = info.url;
+      quality = br;
+      break;
+    }
+  }
+  if (!audioUrl)
+    return { ok: false, message: "\u83B7\u53D6\u9177\u6211\u64AD\u653E\u5730\u5740\u5931\u8D25\uFF08\u53EF\u80FD\u7248\u6743\u53D7\u9650\uFF09" };
+  onProgress == null ? void 0 : onProgress(null, "\u6B63\u5728\u4E0B\u8F7D\u9177\u6211\u97F3\u9891\u2026");
+  const audioRes = await httpGet(audioUrl, 0, (received, total) => {
+    if (total && total > 0)
+      onProgress == null ? void 0 : onProgress(Math.min(100, Math.round(received / total * 100)), "\u6B63\u5728\u4E0B\u8F7D\u9177\u6211\u97F3\u9891");
+    else
+      onProgress == null ? void 0 : onProgress(null, "\u6B63\u5728\u4E0B\u8F7D\u9177\u6211\u97F3\u9891\u2026");
+  }, { "User-Agent": KUWO_UA });
+  const audio = audioRes == null ? void 0 : audioRes.data;
+  if (!audio || audio.byteLength < MIN_AUDIO_BYTES)
+    return { ok: false, message: "\u4E0B\u8F7D\u5931\u8D25\uFF08\u53EF\u80FD\u7248\u6743\u53D7\u9650\uFF09" };
+  const isMp3 = looksLikeMp3(audio);
+  const ext = isMp3 ? "mp3" : looksLikeM4a(audio) ? "m4a" : "mp3";
+  let data = audio;
+  if (isMp3) {
+    const enriched = embedTagsIntoBytes(audio, { title: song.name, artist: song.artist, album: song.album });
+    if (enriched)
+      data = enriched;
+  }
+  const targetPath = await resolveDownloadTargetUnique(plugin, buildSongFilename(song.artist, song.name, ext), "kuwo");
+  const ok = await writeAudioToVault(plugin.app, targetPath, data);
+  if (!ok)
+    return { ok: false, message: "\u5199\u5165\u5931\u8D25\uFF0C\u5DF2\u8FD8\u539F\u539F\u6587\u4EF6" };
+  void plugin.scanLyricSongs();
+  return { ok: true, message: `\u5DF2\u4E0B\u8F7D\u9177\u6211\uFF08${quality}\u2192${ext}\uFF09${formatBytes(data.byteLength)}\uFF1A${targetPath}` };
+}
+function looksLikeMp3(b) {
+  if (b.length < 2)
+    return false;
+  if (b[0] === 73 && b[1] === 68)
+    return true;
+  return b[0] === 255 && (b[1] & 224) === 224;
+}
+function looksLikeM4a(b) {
+  return b.length >= 8 && b[4] === 102 && b[5] === 116 && b[6] === 121 && b[7] === 112;
+}
+function looksLikeFlac(b) {
+  return b.length >= 4 && b[0] === 102 && b[1] === 76 && b[2] === 97 && b[3] === 67;
+}
+var keepAliveAgents = {};
+function getKeepAliveAgent(isHttps) {
+  const key = isHttps ? "https" : "http";
+  if (!keepAliveAgents[key]) {
+    try {
+      const mod = window.require(isHttps ? "https" : "http");
+      keepAliveAgents[key] = new mod.Agent({ keepAlive: true, maxSockets: 8 });
+    } catch (e) {
+      keepAliveAgents[key] = void 0;
+    }
+  }
+  return keepAliveAgents[key];
+}
+async function translateText(text, target = "zh-CN", provider = "auto", cookie) {
+  var _a, _b, _c, _d;
+  const textTrim = text.trim();
+  if (!textTrim)
+    return null;
+  if (provider === "google")
+    return (_a = await translateGoogle(textTrim, target)) != null ? _a : await translateMyMemory(textTrim, target);
+  if (provider === "mymemory")
+    return await translateMyMemory(textTrim, target);
+  if (provider === "baidu")
+    return (_b = await translateBaidu(textTrim, target, cookie)) != null ? _b : await translateMyMemory(textTrim, target);
+  if (provider === "youdao")
+    return (_c = await translateYoudao(textTrim, target, cookie)) != null ? _c : await translateMyMemory(textTrim, target);
+  return (_d = await translateGoogle(textTrim, target)) != null ? _d : await translateMyMemory(textTrim, target);
+}
+async function testTranslateConnection(provider, cookie) {
+  const label = provider === "google" ? "Google" : provider === "baidu" ? "\u767E\u5EA6" : provider === "youdao" ? "\u6709\u9053" : "MyMemory";
+  if ((provider === "baidu" || provider === "youdao") && !(cookie && cookie.trim())) {
+    return { ok: false, message: `${label} \u672A\u914D\u7F6E Cookie\uFF1A\u8BF7\u5148\u7C98\u8D34 Cookie \u518D\u6D4B\u8BD5` };
+  }
+  const p = provider === "auto" ? "auto" : provider;
+  const result = await translateText("\u6D4B\u8BD5", "en", p, cookie);
+  if (result)
+    return { ok: true, message: `${label} \u7FFB\u8BD1\u53EF\u7528\uFF08\u793A\u4F8B\uFF1A\u6D4B\u8BD5 \u2192 ${result}\uFF09` };
+  if (provider === "baidu" || provider === "youdao") {
+    const mm = await translateMyMemory("\u6D4B\u8BD5", "en");
+    if (mm)
+      return { ok: false, message: `${label} \u63A5\u53E3\u4E0D\u53EF\u7528\uFF08\u5DF2\u81EA\u52A8\u964D\u7EA7 MyMemory\uFF1A\u6D4B\u8BD5 \u2192 ${mm}\uFF09` };
+  }
+  return { ok: false, message: `${label} \u8BF7\u6C42\u5931\u8D25\uFF08\u7F51\u7EDC\u6216\u63A5\u53E3\u53D8\u66F4\uFF09` };
+}
+async function translateGoogle(text, target) {
+  try {
+    const res = await httpGetTextChecked(buildGoogleTranslateUrl(text, target), { Referer: "https://translate.google.com/" });
+    if (!res.failed) {
+      const parsed = parseGoogleTranslateResponse(res.text);
+      if (parsed)
+        return parsed;
+    }
+  } catch (e) {
+  }
+  return null;
+}
+async function translateMyMemory(text, target) {
+  try {
+    const res = await httpGetTextChecked(buildMyMemoryUrl(text, target));
+    if (!res.failed) {
+      const parsed = parseMyMemoryResponse(res.text);
+      if (parsed)
+        return parsed;
+    }
+  } catch (e) {
+  }
+  return null;
+}
+async function translateBaidu(text, target, cookie) {
+  if (!cookie || !cookie.trim())
+    return null;
+  try {
+    const { url, body } = buildBaiduTranslateRequest(text, target);
+    const res = await httpPost(url, body, {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Referer: "https://fanyi.baidu.com/",
+      Origin: "https://fanyi.baidu.com",
+      ...cookie && cookie.trim() ? { Cookie: cookie.trim() } : {}
+    });
+    if (res) {
+      const parsed = parseBaiduTranslateResponse(new TextDecoder().decode(res.data));
+      if (parsed)
+        return parsed;
+    }
+  } catch (e) {
+  }
+  return null;
+}
+async function translateYoudao(text, target, cookie) {
+  if (!cookie || !cookie.trim())
+    return null;
+  try {
+    const res = await httpGetTextChecked(buildYoudaoTranslateUrl(text, target), {
+      Referer: "https://fanyi.youdao.com/",
+      ...cookie && cookie.trim() ? { Cookie: cookie.trim() } : {}
+    });
+    if (!res.failed) {
+      const parsed = parseYoudaoTranslateResponse(res.text);
+      if (parsed)
+        return parsed;
+    }
+  } catch (e) {
+  }
+  return null;
+}
+async function translateLyricText(lrc, target = "zh-CN", onProgress, provider = "auto", isCancelled, cookie) {
+  const lines = parseLyricLines(lrc);
+  if (lines.length === 0)
+    return null;
+  const contentLines = lines.filter((l) => l.text.trim());
+  if (contentLines.length === 0)
+    return null;
+  onProgress == null ? void 0 : onProgress(0, contentLines.length);
+  const translated = [];
+  const CHUNK = 5;
+  for (let i = 0; i < contentLines.length; i += CHUNK) {
+    if (isCancelled == null ? void 0 : isCancelled())
+      break;
+    const chunk2 = contentLines.slice(i, i + CHUNK);
+    const results = await Promise.all(chunk2.map(async (l) => {
+      var _a;
+      return {
+        time: l.time,
+        text: l.text,
+        translation: (_a = await translateText(l.text, target, provider, cookie)) != null ? _a : void 0
+      };
+    }));
+    translated.push(...results);
+    onProgress == null ? void 0 : onProgress(Math.min(i + chunk2.length, contentLines.length), contentLines.length);
+  }
+  return translated.some((t) => t.translation) ? buildBilingualLrc(translated) : null;
+}
+async function fetchSongLyrics(song) {
+  var _a, _b;
+  try {
+    switch (song.source) {
+      case "netease": {
+        if (!song.neteaseId)
+          return null;
+        return await fetchLyric(song.neteaseId).catch(() => null);
+      }
+      case "qq": {
+        const text = await httpGetText(buildQqLyricUrl((_a = song.songmid) != null ? _a : ""), { Referer: QQ_REFERER });
+        return parseQqLyricResponse(text);
+      }
+      case "kugou": {
+        return await fetchKugouLyrics(song);
+      }
+      case "kuwo": {
+        const text = await httpGetText(buildKuwoLyricUrl((_b = song.kuwoRid) != null ? _b : song.id), { Referer: "http://www.kuwo.cn/" });
+        return parseKuwoLyricResponse(text);
+      }
+      default:
+        return null;
+    }
+  } catch (e) {
+    return null;
+  }
+}
+async function fetchKugouLyrics(song) {
+  const keywords = [song.name, `${song.name} ${song.artist}`, `${song.name}-${song.artist}`].filter(Boolean);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    for (const kw of keywords) {
+      try {
+        const searchText = await httpGetText(buildKugouLyricSearchUrl(kw), { Referer: KUGOU_PC_REFERER });
+        const cands = parseKugouLyricSearch(searchText);
+        for (const c of cands) {
+          const dlText = await httpGetText(buildKugouLyricDownloadUrl(c.id, c.accesskey), { Referer: KUGOU_PC_REFERER });
+          const lrc = parseKugouLyricDownload(dlText);
+          if (lrc)
+            return lrc;
+        }
+      } catch (e) {
+      }
+    }
+  }
+  return null;
+}
+async function httpGet(url, depth, onProgress, extraHeaders) {
+  var _a, _b;
+  try {
+    const r = window.require;
+    if (typeof r === "function" && (((_a = r("https")) == null ? void 0 : _a.request) || ((_b = r("http")) == null ? void 0 : _b.request))) {
+      return await nodeGet(url, depth, onProgress, extraHeaders);
+    }
+  } catch (e) {
+  }
+  return fetchGet(url, onProgress, extraHeaders);
+}
+async function httpGetText(url, extraHeaders) {
+  const res = await httpGet(url, 0, void 0, extraHeaders);
+  return res ? new TextDecoder("utf-8").decode(res.data) : "";
+}
+async function httpGetTextChecked(url, extraHeaders) {
+  const res = await httpGet(url, 0, void 0, extraHeaders);
+  if (!res)
+    return { text: "", failed: true };
+  return { text: new TextDecoder("utf-8").decode(res.data), failed: false };
+}
+function nodeGet(url, depth, onProgress, extraHeaders) {
+  return new Promise((resolve) => {
+    if (depth > 6) {
+      resolve(null);
+      return;
+    }
+    let u;
+    try {
+      u = new URL(url);
+    } catch (e) {
+      resolve(null);
+      return;
+    }
+    const isHttps = u.protocol === "https:";
+    const mod = window.require(isHttps ? "https" : "http");
+    const req = mod.request({
+      hostname: u.hostname,
+      port: u.port || (isHttps ? 443 : 80),
+      path: u.pathname + u.search,
+      method: "GET",
+      agent: getKeepAliveAgent(isHttps),
+      headers: { "User-Agent": UA2, Referer: REFERER, ...extraHeaders }
+    }, (res) => {
+      var _a, _b, _c, _d, _e;
+      const status = (_a = res.statusCode) != null ? _a : 0;
+      const loc = (_b = res.headers) == null ? void 0 : _b.location;
+      if (status >= 300 && status < 400 && loc) {
+        res.resume();
+        const next = /^https?:\/\//i.test(loc) ? loc : new URL(loc, url).toString();
+        resolve(nodeGet(next, depth + 1, onProgress, extraHeaders));
+        return;
+      }
+      if (status !== 200) {
+        res.resume();
+        resolve(null);
+        return;
+      }
+      let total = null;
+      const cr = (_c = res.headers) == null ? void 0 : _c["content-range"];
+      if (typeof cr === "string") {
+        const m = /\/\s*(\d+)\s*$/.exec(cr);
+        if (m)
+          total = Number(m[1]);
+      }
+      if (total === null) {
+        const cl = (_d = res.headers) == null ? void 0 : _d["content-length"];
+        if (typeof cl === "string" && cl)
+          total = Number(cl);
+      }
+      if (total === null || !Number.isFinite(total))
+        total = null;
+      const headers = {};
+      for (const k of Object.keys((_e = res.headers) != null ? _e : {})) {
+        const v = res.headers[k];
+        if (typeof v === "string")
+          headers[k.toLowerCase()] = v;
+        else if (Array.isArray(v))
+          headers[k.toLowerCase()] = v.join(",");
+      }
+      const chunks = [];
+      let received = 0;
+      res.on("data", (c) => {
+        chunks.push(c);
+        received += c.length;
+        onProgress == null ? void 0 : onProgress(received, total);
+      });
+      res.on("end", () => resolve({ status, data: new Uint8Array(Buffer.concat(chunks)), headers }));
+    });
+    req.setTimeout(6e4, () => req.destroy());
     req.on("error", () => resolve(null));
     req.end();
   });
 }
-async function fetchLyric(songId) {
-  var _a;
-  const url = `https://music.163.com/api/song/lyric?id=${songId}&lv=1&kv=1&tv=-1`;
-  const data = await fetchJson(url);
-  if (data.nolyric)
-    return null;
-  const lyric = (_a = data.lrc) == null ? void 0 : _a.lyric;
-  return typeof lyric === "string" && lyric.trim() ? lyric : null;
-}
-function pickBestMatch(songs, title, artist) {
-  if (songs.length === 0)
-    return null;
-  const clean = (s) => s.trim().toLowerCase().replace(/[.、，,·\-—\s]+$/g, "");
-  const t = clean(title);
-  const a = clean(artist);
-  let best = songs[0];
-  let bestScore = -1;
-  for (const song of songs) {
-    let score = 0;
-    const name = clean(song.name);
-    if (t && name === t)
-      score += 10;
-    else if (t && name && name.includes(t))
-      score += 5;
-    if (a) {
-      if (song.artists.some((x) => clean(x) === a))
-        score += 5;
-      else if (song.artists.some((x) => x.toLowerCase().includes(a)))
-        score += 2;
+async function fetchGet(url, onProgress, extraHeaders) {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 6e4);
+    try {
+      const res = await fetch(url, { signal: controller.signal, headers: extraHeaders });
+      if (!res.ok)
+        return null;
+      const headers = {};
+      res.headers.forEach((v, k) => {
+        headers[k.toLowerCase()] = v;
+      });
+      const totalStr = res.headers.get("content-length");
+      const total = totalStr ? Number(totalStr) : null;
+      if (!res.body)
+        return { status: res.status, data: new Uint8Array(await res.arrayBuffer()), headers };
+      const reader = res.body.getReader();
+      const parts = [];
+      let received = 0;
+      for (; ; ) {
+        const { done, value } = await reader.read();
+        if (done)
+          break;
+        if (value) {
+          parts.push(value);
+          received += value.byteLength;
+          onProgress == null ? void 0 : onProgress(received, Number.isFinite(total) ? total : null);
+        }
+      }
+      const merged = new Uint8Array(received);
+      let off = 0;
+      for (const p of parts) {
+        merged.set(p, off);
+        off += p.byteLength;
+      }
+      return { status: res.status, data: merged, headers };
+    } finally {
+      clearTimeout(timer);
     }
-    if (score > bestScore) {
-      bestScore = score;
-      best = song;
+  } catch (e) {
+    return null;
+  }
+}
+async function httpPost(url, body, extraHeaders) {
+  var _a, _b;
+  try {
+    const r = window.require;
+    if (typeof r === "function" && (((_a = r("https")) == null ? void 0 : _a.request) || ((_b = r("http")) == null ? void 0 : _b.request))) {
+      return await nodePost(url, body, extraHeaders);
+    }
+  } catch (e) {
+  }
+  return fetchPost(url, body, extraHeaders);
+}
+function nodePost(url, body, extraHeaders) {
+  return new Promise((resolve) => {
+    let u;
+    try {
+      u = new URL(url);
+    } catch (e) {
+      resolve(null);
+      return;
+    }
+    const isHttps = u.protocol === "https:";
+    const mod = window.require(isHttps ? "https" : "http");
+    const req = mod.request({
+      hostname: u.hostname,
+      port: u.port || (isHttps ? 443 : 80),
+      path: u.pathname + u.search,
+      method: "POST",
+      agent: getKeepAliveAgent(isHttps),
+      headers: {
+        "User-Agent": UA2,
+        Referer: REFERER,
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Content-Length": Buffer.byteLength(body),
+        ...extraHeaders
+      }
+    }, (res) => {
+      var _a, _b, _c;
+      const status = (_a = res.statusCode) != null ? _a : 0;
+      const loc = (_b = res.headers) == null ? void 0 : _b.location;
+      if (status >= 300 && status < 400 && loc) {
+        res.resume();
+        resolve(null);
+        return;
+      }
+      if (status !== 200) {
+        res.resume();
+        resolve(null);
+        return;
+      }
+      const headers = {};
+      for (const k of Object.keys((_c = res.headers) != null ? _c : {})) {
+        const v = res.headers[k];
+        if (typeof v === "string")
+          headers[k.toLowerCase()] = v;
+        else if (Array.isArray(v))
+          headers[k.toLowerCase()] = v.join(",");
+      }
+      const chunks = [];
+      res.on("data", (c) => chunks.push(c));
+      res.on("end", () => resolve({ status, data: new Uint8Array(Buffer.concat(chunks)), headers }));
+    });
+    req.setTimeout(6e4, () => req.destroy());
+    req.on("error", () => resolve(null));
+    req.end(body);
+  });
+}
+async function fetchPost(url, body, extraHeaders) {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 6e4);
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        body,
+        signal: controller.signal,
+        headers: { "Content-Type": "application/x-www-form-urlencoded", ...extraHeaders }
+      });
+      if (!res.ok)
+        return null;
+      const headers = {};
+      res.headers.forEach((v, k) => {
+        headers[k.toLowerCase()] = v;
+      });
+      return { status: res.status, data: new Uint8Array(await res.arrayBuffer()), headers };
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch (e) {
+    return null;
+  }
+}
+async function resolveDownloadTarget(plugin, filename) {
+  const folder = (plugin.getSettings().audioFolder || "").trim();
+  if (folder) {
+    if (isWindowsAbsolutePath(folder)) {
+      try {
+        const fs = window.require("fs");
+        await fs.promises.mkdir(folder, { recursive: true });
+      } catch (e) {
+      }
+      return `${folder.replace(/[\\/]+$/, "")}\\${filename}`;
+    }
+    await ensureFolder(plugin.app, folder);
+    return `${folder}/${filename}`;
+  }
+  return filename;
+}
+var SOURCE_SUFFIX = { netease: "\u7F51\u6613\u4E91", qq: "QQ", kugou: "\u9177\u72D7", kuwo: "\u9177\u6211" };
+async function fileExists(plugin, targetPath) {
+  if (isWindowsAbsolutePath(targetPath)) {
+    try {
+      const fs = window.require("fs");
+      await fs.promises.access(targetPath);
+      return true;
+    } catch (e) {
+      return false;
     }
   }
-  return best;
+  return plugin.app.vault.getAbstractFileByPath(targetPath) instanceof import_obsidian7.TFile;
+}
+async function resolveDownloadTargetUnique(plugin, filename, source) {
+  var _a;
+  const dot = filename.lastIndexOf(".");
+  const base = dot > 0 ? filename.slice(0, dot) : filename;
+  const ext = dot > 0 ? filename.slice(dot) : "";
+  const suffix = (_a = SOURCE_SUFFIX[source]) != null ? _a : source;
+  let target = await resolveDownloadTarget(plugin, filename);
+  for (let n = 1; await fileExists(plugin, target); n++) {
+    target = await resolveDownloadTarget(plugin, n === 1 ? `${base} (${suffix})${ext}` : `${base} (${suffix}) (${n})${ext}`);
+  }
+  return target;
+}
+async function writeAudioToVault(app, targetPath, data) {
+  if (isWindowsAbsolutePath(targetPath)) {
+    return writeAudioExternal(targetPath, data);
+  }
+  const existing = app.vault.getAbstractFileByPath(targetPath);
+  let backup = null;
+  if (existing instanceof import_obsidian7.TFile) {
+    try {
+      backup = await app.vault.readBinary(existing);
+    } catch (e) {
+    }
+  }
+  try {
+    if (existing instanceof import_obsidian7.TFile) {
+      await app.vault.modifyBinary(existing, data);
+    } else {
+      await app.vault.createBinary(targetPath, data);
+    }
+    const verify = app.vault.getAbstractFileByPath(targetPath);
+    if (verify instanceof import_obsidian7.TFile) {
+      const check = await app.vault.readBinary(verify);
+      if (check.byteLength === data.byteLength)
+        return true;
+    }
+    await rollback(app, existing, backup);
+    return false;
+  } catch (e) {
+    await rollback(app, existing, backup);
+    return false;
+  }
+}
+async function writeAudioExternal(targetPath, data) {
+  try {
+    const fs = window.require("fs");
+    const buf = Buffer.from(data);
+    let backup = null;
+    try {
+      backup = await fs.promises.readFile(targetPath);
+    } catch (e) {
+    }
+    try {
+      await fs.promises.writeFile(targetPath, buf);
+      const check = await fs.promises.readFile(targetPath);
+      if (check.byteLength === buf.byteLength)
+        return true;
+    } catch (e) {
+    }
+    if (backup) {
+      try {
+        await fs.promises.writeFile(targetPath, backup);
+      } catch (e) {
+      }
+    }
+    return false;
+  } catch (e) {
+    return false;
+  }
+}
+async function rollback(app, existing, backup) {
+  try {
+    if (existing instanceof import_obsidian7.TFile && backup) {
+      await app.vault.modifyBinary(existing, backup);
+    }
+  } catch (e) {
+  }
 }
 
+// src/Settings.ts
+var DEFAULT_SETTINGS = {
+  autoScroll: true,
+  sentenceMode: false,
+  onlyShowMarked: false,
+  karaoke: false,
+  lyricsFolder: "",
+  audioFolder: "",
+  songSource: "notes",
+  playMode: "off",
+  flashSwitch: false,
+  playbackRate: 1,
+  volume: 75,
+  platformCookies: {},
+  downloadSources: { netease: true, qq: true, kugou: true, kuwo: true },
+  translateProvider: "google",
+  translateBaiduCookie: "",
+  translateYoudaoCookie: ""
+};
+var LyricsSettings = class extends import_obsidian8.PluginSettingTab {
+  constructor(plugin, settings) {
+    super(plugin.app, plugin);
+    this.plugin = plugin;
+    this.settings = settings;
+  }
+  async updateSettings(newSettings) {
+    this.settings = { ...this.settings, ...newSettings };
+    await this.plugin.saveData(this.settings);
+  }
+  display() {
+    const { containerEl } = this;
+    containerEl.empty();
+    new import_obsidian8.Setting(containerEl).setName("\u57FA\u672C\u8BBE\u7F6E").setHeading();
+    new import_obsidian8.Setting(containerEl).setName("\u81EA\u52A8\u6EDA\u52A8").setDesc("\u9ED8\u8BA4\u5173\u95ED\uFF0CLRC\u7B14\u8BB0\u9875\u968F\u64AD\u653E\u8FDB\u5EA6\u6EDA\u52A8").addToggle((toggle) => {
+      toggle.setValue(this.settings.autoScroll);
+      toggle.onChange((value) => {
+        this.updateSettings({ autoScroll: value });
+      });
+    });
+    new import_obsidian8.Setting(containerEl).setName("\u9010\u53E5\u6A21\u5F0F").setDesc("\u9ED8\u8BA4\u5173\u95ED\uFF0C\u6BCF\u53E5\u7ED3\u675F\u540E\u81EA\u52A8\u6682\u505C\uFF0C\u9002\u5408\u8DDF\u8BFB").addToggle((toggle) => {
+      toggle.setValue(this.settings.sentenceMode);
+      toggle.onChange((value) => {
+        this.updateSettings({ sentenceMode: value });
+      });
+    });
+    new import_obsidian8.Setting(containerEl).setName("\u9010\u5B57\u9AD8\u4EAE").setDesc("\u9ED8\u8BA4\u5173\u95ED\uFF0C\u6BCF\u53E5\u5747\u5206\u9010\u5B57\u9AD8\u4EAE\u3002\u652F\u6301\u7CBE\u786E\u9010\u5B57\u9AD8\u4EAE\uFF1A\u5982<00:12.167>\u6CA7<00:13.000>\u6D77").addToggle((toggle) => {
+      toggle.setValue(this.settings.karaoke);
+      toggle.onChange((value) => {
+        this.updateSettings({ karaoke: value });
+      });
+    });
+    new import_obsidian8.Setting(containerEl).setName("\u540E\u53F0\u64AD\u653E").setDesc("\u9ED8\u8BA4\u5173\u95ED\uFF0C\u5F00\u542F\u540E\u6700\u5C0F\u5316\u53EF\u7EE7\u7EED\u64AD\u653E\uFF0C\u4F46\u6CE8\u610F\u5728LRC\u7B14\u8BB0\u8DEF\u5F84\u4E0B\u5207\u6B4C\u65F6\u4F1A\u95EA\u73B0\u5F39\u7A97").addToggle((toggle) => {
+      toggle.setValue(this.settings.flashSwitch);
+      toggle.onChange((value) => {
+        this.updateSettings({ flashSwitch: value });
+      });
+    });
+    new import_obsidian8.Setting(containerEl).setName("\u6B4C\u5355").setHeading();
+    new import_obsidian8.Setting(containerEl).setName("\u6B4C\u5355\u6765\u6E90").setDesc("\u9009\u62E9\u6B4C\u5355\u6570\u636E\u6765\u6E90\uFF1ALRC \u7B14\u8BB0\u8DEF\u5F84 \u6216 \u97F3\u9891\u6587\u4EF6\u8DEF\u5F84").addDropdown((dropdown) => {
+      dropdown.addOption("notes", "LRC \u7B14\u8BB0\u8DEF\u5F84").addOption("audio", "\u97F3\u9891\u6587\u4EF6\u8DEF\u5F84").setValue(this.settings.songSource).onChange(async (value) => {
+        await this.updateSettings({ songSource: value });
+        await this.plugin.stopAllPlayback();
+        await this.plugin.scanLyricSongs();
+        this.display();
+      });
+    });
+    if (this.settings.songSource === "notes") {
+      this.createFolderPicker(containerEl, {
+        name: "LRC\u7B14\u8BB0\u6587\u4EF6\u5939",
+        desc: "\u6307\u5B9A\u7B14\u8BB0\u8DEF\u5F84\uFF0C\u7528\u4E8E\u5728\u4FA7\u8FB9\u680F\u6E32\u67D3\u6B4C\u5355\u5217\u8868",
+        placeholder: "\u8F93\u5165\u6587\u4EF6\u5939/",
+        value: this.settings.lyricsFolder,
+        onChange: (folder) => {
+          this.updateSettings({ lyricsFolder: folder });
+        }
+      });
+    } else {
+      this.createFolderPicker(containerEl, {
+        name: "\u97F3\u9891\u6587\u4EF6\u5939",
+        desc: "\u6307\u5B9A\u97F3\u9891\u8DEF\u5F84\uFF08\u540C\u4E0B\u8F7D\u8DEF\u5F84\uFF09\uFF0C\u7528\u4E8E\u5728\u4FA7\u8FB9\u680F\u6E32\u67D3\u6B4C\u5355\u5217\u8868",
+        placeholder: "\u4F8B\u5982\uFF1AMusic",
+        value: this.settings.audioFolder,
+        onChange: (folder) => {
+          this.updateSettings({ audioFolder: folder });
+        }
+      });
+    }
+    const previewCacheSetting = new import_obsidian8.Setting(containerEl).setName("\u8BD5\u542C\u7F13\u5B58").setDesc("\u300C\u8BD5\u542C\u300D\u64AD\u653E\u62C9\u53D6\u7684\u97F3\u9891\u5B57\u8282\u7F13\u5B58\uFF08\u4F1A\u8BDD\u5185\uFF0C\u91CD\u542F Obsidian \u81EA\u52A8\u6E05\u7A7A\uFF09");
+    previewCacheSetting.addButton((btn) => {
+      btn.setClass("lyrics-clear-cache-btn");
+      btn.setButtonText(`\u6E05\u9664\u7F13\u5B58\uFF08${formatBytes(getPreviewCacheSize())}\uFF09`).onClick(async () => {
+        clearPreviewCache();
+        btn.setButtonText("\u6E05\u9664\u7F13\u5B58\uFF080 B\uFF09");
+        new import_obsidian8.Notice(`\u5DF2\u6E05\u9664\u8BD5\u542C\u7F13\u5B58\uFF08${getPreviewCacheCount()} \u6761\uFF09`);
+      });
+    });
+    new import_obsidian8.Setting(containerEl).setName("\u4E0B\u8F7D").setHeading();
+    const sourcePlatforms = [
+      { key: "netease", name: "\u7F51\u6613\u4E91\u97F3\u4E50", site: "music.163.com" },
+      { key: "qq", name: "QQ \u97F3\u4E50", site: "y.qq.com" },
+      { key: "kugou", name: "\u9177\u72D7\u97F3\u4E50", site: "kugou.com" },
+      { key: "kuwo", name: "\u9177\u6211\u97F3\u4E50", site: "kuwo.cn" }
+    ];
+    for (const p of sourcePlatforms) {
+      this.createCookieRow(containerEl, p.key, p.name, p.site);
+    }
+    new import_obsidian8.Setting(containerEl).setName("\u7FFB\u8BD1").setHeading();
+    if (this.settings.translateProvider === "baidu" || this.settings.translateProvider === "youdao") {
+      this.settings.translateProvider = "google";
+      void this.plugin.saveData(this.settings);
+    }
+    const translateProviderContainer = containerEl.createDiv({ cls: "lyrics-translate-providers" });
+    this.createTranslateProviderRow(translateProviderContainer, "mymemory", "MyMemory");
+    this.createTranslateProviderRow(translateProviderContainer, "google", "Google");
+    this.createTranslateProviderRow(translateProviderContainer, "baidu", "\u767E\u5EA6\u7FFB\u8BD1", "fanyi.baidu.com", true);
+    this.createTranslateProviderRow(translateProviderContainer, "youdao", "\u6709\u9053\u7FFB\u8BD1", "fanyi.youdao.com", true);
+    new import_obsidian8.Setting(containerEl).setName("\u5173\u4E8E").setHeading();
+    const about = containerEl.createDiv({ cls: "lyrics-about" });
+    const aboutText = about.createDiv({ cls: "lyrics-about-text" });
+    aboutText.createDiv({ cls: "lyrics-about-title", text: "\u652F\u6301\u4F5C\u8005" });
+    aboutText.createDiv({ cls: "lyrics-about-desc", text: "\u5982\u679C\u4F60\u89C9\u5F97 LyricFlux \u6709\u4EF7\u503C\uFF0C\u8BF7\u8003\u8651\u652F\u6301\u5B83\u7684\u5F00\u53D1\uFF01" });
+    const aboutBtns = about.createDiv({ cls: "lyrics-about-buttons" });
+    const githubBtn = aboutBtns.createEl("button", { cls: "lyrics-about-btn", text: "Github" });
+    const afdianBtn = aboutBtns.createEl("button", { cls: "lyrics-about-btn lyrics-about-btn-accent", text: "\u7231\u53D1\u7535" });
+    githubBtn.addEventListener("click", () => window.open("https://github.com/fhb263/obsidian-lyricflux", "_blank"));
+    afdianBtn.addEventListener("click", () => window.open("https://ifdian.net/a/fhb263", "_blank"));
+  }
+  /**
+   * 创建带手动刷新按钮 + 搜索下拉的文件夹选择器（LRC 笔记文件夹 / 音频文件夹共用）。
+   * suggestAudioFiles=true 时建议列表同时含音频文件（选文件取其所在文件夹），供音频文件夹按歌曲名搜索。
+   * 选择或输入后调用 onChange 更新对应设置，并重扫歌单。
+   */
+  createFolderPicker(containerEl, opts) {
+    const setting = new import_obsidian8.Setting(containerEl).setName(opts.name).setDesc(opts.desc);
+    setting.addButton((btn) => {
+      btn.setClass("lyrics-reload-btn");
+      btn.setIcon("refresh-cw").setTooltip("\u5237\u65B0\u6B4C\u5355\u5217\u8868").onClick(async () => {
+        btn.setDisabled(true);
+        btn.setIcon("loader");
+        await this.plugin.scanLyricSongs();
+        btn.setIcon("check");
+        setTimeout(() => {
+          btn.setIcon("refresh-cw");
+          btn.setDisabled(false);
+        }, 1e3);
+        new import_obsidian8.Notice(`\u6B4C\u5355\u5DF2\u5237\u65B0\uFF0C\u5171 ${this.plugin.getSongList().length} \u9996\u6B4C\u66F2`);
+      });
+    });
+    const inputEl = setting.controlEl.createDiv({ cls: "lyrics-folder-input-wrap" });
+    const textInput = inputEl.createEl("input", {
+      cls: "lyrics-folder-input",
+      attr: {
+        type: "text",
+        placeholder: opts.placeholder,
+        value: opts.value
+      }
+    });
+    const suggestionsEl = inputEl.createDiv({ cls: "lyrics-folder-suggestions" });
+    suggestionsEl.style.display = "none";
+    const getAllFolders = () => {
+      const folders = /* @__PURE__ */ new Set();
+      for (const file of this.app.vault.getAllLoadedFiles()) {
+        if (file instanceof import_obsidian8.TFolder) {
+          folders.add(file.path);
+        }
+      }
+      return Array.from(folders).sort();
+    };
+    const allFolders = getAllFolders();
+    const applyFolder = (folder) => {
+      textInput.value = folder;
+      opts.onChange(folder);
+      this.plugin.scanLyricSongs();
+      suggestionsEl.style.display = "none";
+    };
+    const showSuggestions = (query) => {
+      suggestionsEl.empty();
+      const lowerQuery = query.toLowerCase();
+      const filtered = (query ? allFolders.filter((f) => f.toLowerCase().includes(lowerQuery)) : allFolders).slice(0, 20);
+      if (filtered.length === 0) {
+        suggestionsEl.style.display = "none";
+        return;
+      }
+      renderSuggestions(filtered);
+      suggestionsEl.style.display = "block";
+    };
+    let activeIndex = -1;
+    const renderSuggestions = (folders) => {
+      suggestionsEl.empty();
+      activeIndex = -1;
+      folders.forEach((folder, index) => {
+        const item = suggestionsEl.createDiv({ cls: "lyrics-folder-suggestion-item" });
+        item.setText(folder);
+        item.addEventListener("click", () => applyFolder(folder));
+        item.addEventListener("mouseenter", () => {
+          activeIndex = index;
+          updateActive();
+        });
+      });
+      const updateActive = () => {
+        suggestionsEl.querySelectorAll(".lyrics-folder-suggestion-item").forEach((el, i) => {
+          el.classList.toggle("lyrics-folder-suggestion-active", i === activeIndex);
+        });
+      };
+      textInput.onkeydown = (e) => {
+        var _a, _b;
+        const items = suggestionsEl.querySelectorAll(".lyrics-folder-suggestion-item");
+        if (!items.length)
+          return;
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          activeIndex = Math.min(activeIndex + 1, items.length - 1);
+          updateActive();
+          (_a = items[activeIndex]) == null ? void 0 : _a.scrollIntoView({ block: "nearest" });
+        } else if (e.key === "ArrowUp") {
+          e.preventDefault();
+          activeIndex = Math.max(activeIndex - 1, 0);
+          updateActive();
+          (_b = items[activeIndex]) == null ? void 0 : _b.scrollIntoView({ block: "nearest" });
+        } else if (e.key === "Enter" && activeIndex >= 0) {
+          e.preventDefault();
+          applyFolder(folders[activeIndex]);
+        } else if (e.key === "Escape") {
+          suggestionsEl.style.display = "none";
+          textInput.blur();
+        }
+      };
+    };
+    textInput.addEventListener("input", () => {
+      showSuggestions(textInput.value);
+    });
+    textInput.addEventListener("focus", () => {
+      showSuggestions(textInput.value);
+    });
+    const onBlur = () => {
+      setTimeout(() => {
+        suggestionsEl.style.display = "none";
+      }, 200);
+    };
+    textInput.addEventListener("blur", onBlur);
+    textInput.addEventListener("change", () => {
+      applyFolder(textInput.value);
+    });
+  }
+  /**
+   * 创建可折叠的 Cookie 输入行：头部**勾选框**（控制搜索结果是否包含该平台，未勾选整行变灰且不参与搜索）
+   * + 平台名 + 状态徽标（未配置/已配置 N 字符），点击行展开/收起 textarea。
+   * 四平台均有 Cookie 输入（网易云为可选，用于 VIP 下载；QQ 必需；酷狗/酷我可选预留）。
+   */
+  createCookieRow(containerEl, key, name, site) {
+    var _a;
+    const value = (_a = this.settings.platformCookies[key]) != null ? _a : "";
+    const enabled = this.settings.downloadSources[key] !== false;
+    const row = containerEl.createDiv({ cls: "lyrics-cookie-row" });
+    if (!enabled)
+      row.addClass("lyrics-cookie-row-disabled");
+    const header = row.createDiv({ cls: "lyrics-cookie-header" });
+    const checkbox = header.createEl("input", { cls: "lyrics-cookie-checkbox", attr: { type: "checkbox" } });
+    checkbox.checked = enabled;
+    checkbox.addEventListener("click", (e) => e.stopPropagation());
+    checkbox.addEventListener("change", () => {
+      this.updateSettings({ downloadSources: { ...this.settings.downloadSources, [key]: checkbox.checked } });
+      row.toggleClass("lyrics-cookie-row-disabled", !checkbox.checked);
+    });
+    header.createSpan({ cls: "lyrics-cookie-name", text: name });
+    const statusEl = header.createSpan({
+      cls: "lyrics-cookie-status",
+      text: value ? `\u5DF2\u914D\u7F6E\uFF08${value.length} \u5B57\u7B26\uFF09` : "\u672A\u914D\u7F6E"
+    });
+    if (value)
+      statusEl.addClass("lyrics-cookie-status-on");
+    header.createSpan({ cls: "lyrics-cookie-chevron", text: "\u25B8" });
+    const body = row.createDiv({ cls: "lyrics-cookie-body" });
+    const textarea = body.createEl("textarea", { cls: "lyrics-cookie-input" });
+    textarea.value = value;
+    textarea.placeholder = `\u767B\u5F55 ${site} \u540E F12 \u2192 \u63A7\u5236\u53F0\u8F93\u5165 document.cookie \u590D\u5236\u6574\u6BB5`;
+    textarea.addEventListener("input", () => {
+      const v = textarea.value.trim();
+      this.updateSettings({ platformCookies: { ...this.settings.platformCookies, [key]: v } });
+      statusEl.setText(v ? `\u5DF2\u914D\u7F6E\uFF08${v.length} \u5B57\u7B26\uFF09` : "\u672A\u914D\u7F6E");
+      statusEl.toggleClass("lyrics-cookie-status-on", !!v);
+    });
+    body.createDiv({
+      cls: "lyrics-cookie-hint",
+      text: key === "netease" ? `\u53EF\u9009\uFF08VIP \u4E0B\u8F7D\u7528\uFF09\uFF1A\u7C98\u8D34\u7F51\u6613\u4E91\u4F1A\u5458 Cookie \u540E\u53EF\u4E0B\u8F7D VIP \u9AD8\u97F3\u8D28\uFF1B\u4E0D\u586B\u5219\u4E0B\u8F7D\u514D\u8D39\u6807\u51C6\u97F3\u8D28\u3002\u83B7\u53D6\uFF1A\u767B\u5F55 music.163.com \u2192 F12 \u63A7\u5236\u53F0\u8F93\u5165 document.cookie \u2192 \u590D\u5236\u8F93\u51FA\u7C98\u8D34\u5230\u4E0A\u65B9\u3002\u4EC5\u5B58\u672C\u5730 data.json\u3002` : `\u83B7\u53D6\u65B9\u5F0F\uFF1A\u767B\u5F55 ${site} \u2192 F12 \u63A7\u5236\u53F0\u8F93\u5165 document.cookie \u2192 \u590D\u5236\u8F93\u51FA\u7C98\u8D34\u5230\u4E0A\u65B9\u3002\u4EC5\u5B58\u672C\u5730 data.json\u3002`
+    });
+    const actions = body.createDiv({ cls: "lyrics-cookie-body-actions" });
+    const testBtn = actions.createEl("button", { text: "\u6D4B\u8BD5\u8FDE\u63A5", cls: "mod-cta" });
+    const testResultEl = actions.createSpan({ cls: "lyrics-cookie-test-result" });
+    actions.createEl("button", { text: "\u6E05\u9664", cls: "mod-cta" }).addEventListener("click", () => {
+      textarea.value = "";
+      this.updateSettings({ platformCookies: { ...this.settings.platformCookies, [key]: "" } });
+      statusEl.setText("\u672A\u914D\u7F6E");
+      statusEl.removeClass("lyrics-cookie-status-on");
+      testResultEl.setText("");
+    });
+    testBtn.addEventListener("click", async () => {
+      testBtn.disabled = true;
+      testBtn.setText("\u6D4B\u8BD5\u4E2D\u2026");
+      testResultEl.setText("");
+      const res = await testPlatformConnection(key, textarea.value.trim());
+      testBtn.disabled = false;
+      testBtn.setText("\u6D4B\u8BD5\u8FDE\u63A5");
+      testResultEl.setText(res.ok ? "\u2713 " + res.message : "\u2717 " + res.message);
+      testResultEl.toggleClass("lyrics-cookie-test-ok", res.ok);
+      testResultEl.toggleClass("lyrics-cookie-test-bad", !res.ok);
+    });
+    header.addEventListener("click", () => {
+      const wasCollapsed = body.hasClass("lyrics-cookie-collapsed");
+      body.toggleClass("lyrics-cookie-collapsed", !wasCollapsed);
+      row.toggleClass("lyrics-cookie-row-expanded", wasCollapsed);
+      if (wasCollapsed)
+        textarea.focus();
+    });
+    body.addClass("lyrics-cookie-collapsed");
+  }
+  /**
+   * 创建翻译服务商单选行（v1.4.1，样式对齐「下载」分组 cookie 行）：
+   * 行首为 radio 单选勾选（选中即设为当前翻译源，不触发行折叠）；
+   * 百度/有道附带可折叠 Cookie 输入（默认收起，防凭证暴露）+「测试连接」/「清除」按钮；
+   * 自动/Google 无 Cookie 输入，点击整行即选中。选中的行高亮、未选中的整行变灰。
+   */
+  createTranslateProviderRow(containerEl, key, name, site, disabled = false) {
+    var _a;
+    const cookieKey = key === "baidu" ? "translateBaiduCookie" : key === "youdao" ? "translateYoudaoCookie" : null;
+    const isCurrent = () => !disabled && this.settings.translateProvider === key;
+    const row = containerEl.createDiv({ cls: "lyrics-cookie-row" });
+    row.dataset.provider = key;
+    if (disabled)
+      row.addClass("lyrics-cookie-row-disabled");
+    row.toggleClass("lyrics-translate-provider-active", isCurrent());
+    row.toggleClass("lyrics-translate-provider-off", !isCurrent());
+    const header = row.createDiv({ cls: "lyrics-cookie-header" });
+    const radio = header.createEl("input", { cls: "lyrics-cookie-checkbox", attr: { type: "radio", name: "lyrics-translate-provider" } });
+    radio.checked = isCurrent();
+    if (disabled)
+      radio.disabled = true;
+    radio.addEventListener("click", (e) => e.stopPropagation());
+    radio.addEventListener("change", () => {
+      if (disabled || !radio.checked)
+        return;
+      void this.updateSettings({ translateProvider: key });
+      this.refreshTranslateProviderRows(containerEl);
+    });
+    header.createSpan({ cls: "lyrics-cookie-name", text: name });
+    if (disabled) {
+      header.createSpan({ cls: "lyrics-cookie-status", text: "\u5DF2\u7981\u7528" });
+      return;
+    }
+    let statusEl = null;
+    let body = null;
+    let textarea = null;
+    if (cookieKey) {
+      const value = (_a = this.settings[cookieKey]) != null ? _a : "";
+      statusEl = header.createSpan({
+        cls: "lyrics-cookie-status" + (value || isCurrent() ? " lyrics-cookie-status-on" : ""),
+        text: value ? `\u5DF2\u914D\u7F6E\uFF08${value.length} \u5B57\u7B26\uFF09${isCurrent() ? " \xB7 \u5F53\u524D\u6E90" : ""}` : isCurrent() ? "\u672A\u914D\u7F6E \xB7 \u5F53\u524D\u6E90" : "\u672A\u914D\u7F6E"
+      });
+      header.createSpan({ cls: "lyrics-cookie-chevron", text: "\u25B8" });
+      body = row.createDiv({ cls: "lyrics-cookie-body" });
+      textarea = body.createEl("textarea", { cls: "lyrics-cookie-input" });
+      textarea.value = value;
+      textarea.placeholder = `\u767B\u5F55 ${site} \u2192 F12 \u63A7\u5236\u53F0\u8F93\u5165 document.cookie \u590D\u5236\u6574\u6BB5`;
+      textarea.addEventListener("input", () => {
+        const v = textarea.value.trim();
+        this.updateSettings({ [cookieKey]: v });
+        const isCur = isCurrent();
+        statusEl.setText(v ? `\u5DF2\u914D\u7F6E\uFF08${v.length} \u5B57\u7B26\uFF09${isCur ? " \xB7 \u5F53\u524D\u6E90" : ""}` : isCur ? "\u672A\u914D\u7F6E \xB7 \u5F53\u524D\u6E90" : "\u672A\u914D\u7F6E");
+        statusEl.toggleClass("lyrics-cookie-status-on", !!v || isCur);
+      });
+      body.createDiv({
+        cls: "lyrics-cookie-hint",
+        text: `\u53EF\u9009\u3002\u7C98\u8D34 ${name} \u767B\u5F55 Cookie \u540E\u53EF\u7A33\u5B9A\u8C03\u7528\u8BE5\u7FFB\u8BD1\u6E90\u3002\u83B7\u53D6\uFF1A\u767B\u5F55 ${site} \u2192 F12 \u63A7\u5236\u53F0\u8F93\u5165 document.cookie \u2192 \u590D\u5236\u8F93\u51FA\u7C98\u8D34\u5230\u4E0A\u65B9\u3002\u4EC5\u5B58\u672C\u5730 data.json\u3002`
+      });
+      const actions = body.createDiv({ cls: "lyrics-cookie-body-actions" });
+      const testBtn = actions.createEl("button", { text: "\u6D4B\u8BD5\u8FDE\u63A5", cls: "mod-cta" });
+      const testResultEl = actions.createSpan({ cls: "lyrics-cookie-test-result" });
+      actions.createEl("button", { text: "\u6E05\u9664", cls: "mod-cta" }).addEventListener("click", () => {
+        textarea.value = "";
+        this.updateSettings({ [cookieKey]: "" });
+        const isCur = isCurrent();
+        statusEl.setText(isCur ? "\u672A\u914D\u7F6E \xB7 \u5F53\u524D\u6E90" : "\u672A\u914D\u7F6E");
+        statusEl.toggleClass("lyrics-cookie-status-on", isCur);
+        testResultEl.setText("");
+      });
+      testBtn.addEventListener("click", async () => {
+        testBtn.disabled = true;
+        testBtn.setText("\u6D4B\u8BD5\u4E2D\u2026");
+        testResultEl.setText("");
+        const res = await testTranslateConnection(key, textarea.value.trim());
+        testBtn.disabled = false;
+        testBtn.setText("\u6D4B\u8BD5\u8FDE\u63A5");
+        testResultEl.setText(res.ok ? "\u2713 " + res.message : "\u2717 " + res.message);
+        testResultEl.toggleClass("lyrics-cookie-test-ok", res.ok);
+        testResultEl.toggleClass("lyrics-cookie-test-bad", !res.ok);
+      });
+      header.addEventListener("click", () => {
+        const wasCollapsed = body.hasClass("lyrics-cookie-collapsed");
+        body.toggleClass("lyrics-cookie-collapsed", !wasCollapsed);
+        row.toggleClass("lyrics-cookie-row-expanded", wasCollapsed);
+        if (wasCollapsed)
+          textarea.focus();
+      });
+      body.addClass("lyrics-cookie-collapsed");
+    } else {
+      header.addEventListener("click", () => {
+        if (!radio.checked) {
+          radio.checked = true;
+          void this.updateSettings({ translateProvider: key });
+          this.refreshTranslateProviderRows(containerEl);
+        }
+      });
+    }
+  }
+  /** 刷新翻译服务商单选行：radio 勾选态 + 选中高亮/未选中变灰 + 当前源状态徽标（禁用行跳过，保持「已禁用」） */
+  refreshTranslateProviderRows(containerEl) {
+    containerEl.querySelectorAll(".lyrics-cookie-row[data-provider]").forEach((row) => {
+      var _a;
+      if (row.hasClass("lyrics-cookie-row-disabled"))
+        return;
+      const key = row.dataset.provider;
+      const radio = row.querySelector('input[type="radio"][name="lyrics-translate-provider"]');
+      if (!radio)
+        return;
+      const checked = radio.checked;
+      row.toggleClass("lyrics-translate-provider-active", checked);
+      row.toggleClass("lyrics-translate-provider-off", !checked);
+      const statusEl = row.querySelector(".lyrics-cookie-status");
+      if (!statusEl)
+        return;
+      const cookieKey = key === "baidu" ? "translateBaiduCookie" : key === "youdao" ? "translateYoudaoCookie" : null;
+      const value = cookieKey ? (_a = this.settings[cookieKey]) != null ? _a : "" : "";
+      statusEl.setText(value ? `\u5DF2\u914D\u7F6E\uFF08${value.length} \u5B57\u7B26\uFF09${checked ? " \xB7 \u5F53\u524D\u6E90" : ""}` : checked ? "\u672A\u914D\u7F6E \xB7 \u5F53\u524D\u6E90" : "\u672A\u914D\u7F6E");
+      statusEl.toggleClass("lyrics-cookie-status-on", !!value || checked);
+    });
+  }
+  getSettings() {
+    return this.settings;
+  }
+};
+
+// src/main.ts
+var import_obsidian13 = require("obsidian");
+
+// src/shared.ts
+var LYRICS_VIEW_TYPE = "lyrics-sidebar";
+var PLAY_MODES = ["off", "single", "sequential", "shuffle"];
+var SPEED_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2];
+var VOLUME_OPTIONS = [0, 25, 50, 75, 100];
+
+// src/LyricsView.ts
+var import_obsidian12 = require("obsidian");
+
 // src/TagEditorModal.ts
-var TagEditorModal = class extends import_obsidian8.Modal {
-  // 在线歌词获取中标志（防重复点击）
+var import_obsidian9 = require("obsidian");
+var SOURCE_LABELS = {
+  netease: "\u7F51\u6613\u4E91",
+  qq: "QQ",
+  kugou: "\u9177\u72D7",
+  kuwo: "\u9177\u6211"
+};
+var TagEditorModal = class extends import_obsidian9.Modal {
+  // 翻译进度文字
   constructor(app, plugin, notePath, initialSource) {
     super(app);
     this.plugin = plugin;
@@ -12558,6 +15549,30 @@ var TagEditorModal = class extends import_obsidian8.Modal {
     this.newFileName = "";
     // 文件名重命名目标（含扩展名），空 = 不改名
     this.fetching = false;
+    // 在线歌词获取中标志（防重复点击）
+    this.fileSizeBytes = 0;
+    // 当前文件字节数（0 = 读取失败/未知）
+    this.baselineEmbedded = 0;
+    // 打开时原标签在 ID3v2 中的估算字节，用于计算保存后的预计增量
+    this.sizeDescEl = null;
+    // 「文件大小」提示行，随编辑实时刷新
+    this.lyricCandidatesEl = null;
+    // 多平台歌词候选列表容器
+    this.lyricCandidatesRow = [];
+    // 当前候选列表（保留供后续用）
+    this.fetchingLyrics = false;
+    // 歌词候选加载中标志
+    this.translating = false;
+    // 歌词翻译中标志
+    this.translateCancelled = false;
+    // 翻译取消标志（翻译中点按钮置 true 中断）
+    this.translateStartedAt = 0;
+    // 翻译开始时间（performance.now），用于估算剩余时间
+    this.translateProgressWrap = null;
+    // 翻译进度条容器
+    this.translateProgressFill = null;
+    // 翻译进度条填充
+    this.translateProgressText = null;
   }
   async onOpen() {
     var _a, _b, _c, _d;
@@ -12567,18 +15582,21 @@ var TagEditorModal = class extends import_obsidian8.Modal {
     const loading = this.contentEl.createDiv({ cls: "lyrics-tag-loading", text: "\u6B63\u5728\u8BFB\u53D6\u6807\u7B7E\u2026" });
     this.source = (_a = this.initialSource) != null ? _a : await resolveAudioSource(this.app, this.notePath);
     if (!this.source) {
-      new import_obsidian8.Notice("\u672A\u627E\u5230\u8BE5\u6B4C\u66F2\u7684 MP3 \u6587\u4EF6");
+      new import_obsidian9.Notice("\u672A\u627E\u5230\u8BE5\u6B4C\u66F2\u7684 MP3 \u6587\u4EF6");
       this.close();
       return;
     }
     const isMp3 = this.source.type === "vault" ? /\.mp3$/i.test((_c = (_b = this.source.file) == null ? void 0 : _b.name) != null ? _c : "") : /\.mp3$/i.test((_d = this.source.path) != null ? _d : "");
     if (!isMp3) {
-      new import_obsidian8.Notice("\u4EC5 MP3 \u53EF\u7F16\u8F91\u6807\u7B7E\uFF0C\u8BE5\u683C\u5F0F\u4E3A\u53EA\u8BFB\u5C55\u793A", 4e3);
+      new import_obsidian9.Notice("\u4EC5 MP3 \u53EF\u7F16\u8F91\u6807\u7B7E\uFF0C\u8BE5\u683C\u5F0F\u4E3A\u53EA\u8BFB\u5C55\u793A", 4e3);
       this.close();
       return;
     }
     const tags = await readMp3Tags(this.app, this.source);
     this.tags = tags != null ? tags : {};
+    const size = await getAudioFileSize(this.app, this.source);
+    this.fileSizeBytes = size != null ? size : 0;
+    this.baselineEmbedded = estimateEmbeddedSize(this.tags);
     loading.remove();
     this.render();
   }
@@ -12586,37 +15604,48 @@ var TagEditorModal = class extends import_obsidian8.Modal {
     var _a;
     const { contentEl } = this;
     contentEl.empty();
-    const nameSetting = new import_obsidian8.Setting(contentEl).setName("\u6587\u4EF6\u540D").setDesc("\u91CD\u547D\u540D\u6587\u4EF6\uFF08vault \u5185\u81EA\u52A8\u66F4\u65B0\u5F15\u7528\uFF0C\u5E93\u5916\u540C\u6B65\u6539\u7B14\u8BB0 source \u884C\uFF09");
+    const nameSetting = new import_obsidian9.Setting(contentEl).setName("\u6587\u4EF6\u540D").setDesc(this.getCurrentAbsolutePath());
     nameSetting.addText((text) => {
       const current = this.getCurrentFileName();
       text.setValue(current).setPlaceholder("\u8F93\u5165\u65B0\u6587\u4EF6\u540D\uFF08\u542B\u6269\u5C55\u540D\uFF09").onChange((v) => {
         this.newFileName = v.trim();
       });
     });
+    const sizeSetting = new import_obsidian9.Setting(contentEl).setName("\u6587\u4EF6\u5927\u5C0F");
+    this.sizeDescEl = sizeSetting.descEl;
+    this.updateSizeEstimate();
     const textFields = [
       ["title", "\u6807\u9898"],
       ["artist", "\u827A\u672F\u5BB6"],
       ["album", "\u4E13\u8F91"]
     ];
     for (const [key, label] of textFields) {
-      new import_obsidian8.Setting(contentEl).setName(label).addText((text) => {
+      new import_obsidian9.Setting(contentEl).setName(label).addText((text) => {
         var _a2;
         text.setValue((_a2 = this.tags[key]) != null ? _a2 : "");
         text.onChange((v) => {
           this.tags[key] = v;
+          this.updateSizeEstimate();
         });
       });
     }
-    new import_obsidian8.Setting(contentEl).setName("\u6B4C\u8BCD").setDesc("\u53EF\u6574\u6BB5\u7C98\u8D34 LRC\uFF08\u542B [mm:ss] \u65F6\u95F4\u6233\uFF09\uFF0C\u4FDD\u5B58\u5199\u56DE USLT \u5E27");
+    const lyricsSetting = new import_obsidian9.Setting(contentEl).setName("\u6B4C\u8BCD").setDesc("\u53EF\u6574\u6BB5\u7C98\u8D34 LRC\uFF08\u542B [mm:ss] \u65F6\u95F4\u6233\uFF09\uFF0C\u4FDD\u5B58\u5199\u56DE USLT \u5E27");
     const lyricsArea = contentEl.createEl("textarea", { cls: "lyrics-tag-lyrics" });
     lyricsArea.value = (_a = this.tags.lyrics) != null ? _a : "";
     lyricsArea.addEventListener("input", () => {
       this.tags.lyrics = lyricsArea.value;
+      this.updateSizeEstimate();
     });
-    const lyricsFooter = contentEl.createDiv({ cls: "lyrics-tag-lyrics-footer" });
-    const fetchBtn = lyricsFooter.createEl("button", { text: "\u83B7\u53D6\u6B4C\u8BCD", cls: "mod-cta" });
-    fetchBtn.addEventListener("click", () => void this.fetchOnlineLyrics(lyricsArea, fetchBtn));
-    const coverSetting = new import_obsidian8.Setting(contentEl).setName("\u5C01\u9762");
+    lyricsSetting.addButton((btn) => btn.setButtonText("\u7FFB\u8BD1\u6B4C\u8BCD").onClick(() => void this.translateLyrics(lyricsArea, btn)));
+    lyricsSetting.addButton((btn) => btn.setCta().setButtonText("\u83B7\u53D6\u6B4C\u8BCD").onClick(() => void this.fetchOnlineLyrics(lyricsArea, btn)));
+    const translateProgressWrap = contentEl.createDiv({ cls: "lyrics-tag-translate-progress lyrics-tag-translate-progress-hidden" });
+    const translateProgressTrack = translateProgressWrap.createDiv({ cls: "lyrics-tag-translate-progress-track" });
+    this.translateProgressFill = translateProgressTrack.createDiv({ cls: "lyrics-tag-translate-progress-fill" });
+    this.translateProgressText = translateProgressWrap.createDiv({ cls: "lyrics-tag-translate-progress-text" });
+    this.translateProgressWrap = translateProgressWrap;
+    const candidateBox = contentEl.createDiv({ cls: "lyrics-tag-lyric-candidates lyrics-tag-lyric-candidates-hidden" });
+    this.lyricCandidatesEl = candidateBox;
+    const coverSetting = new import_obsidian9.Setting(contentEl).setName("\u5C01\u9762");
     this.coverPreview = contentEl.createDiv({ cls: "lyrics-tag-cover-preview" });
     this.renderCoverPreview();
     coverSetting.addButton((btn) => btn.setButtonText("\u9009\u62E9\u56FE\u7247").onClick(() => {
@@ -12627,6 +15656,7 @@ var TagEditorModal = class extends import_obsidian8.Modal {
     coverSetting.addButton((btn) => btn.setWarning().setButtonText("\u79FB\u9664\u5C01\u9762").onClick(() => {
       this.tags.cover = null;
       this.renderCoverPreview();
+      this.updateSizeEstimate();
     }));
     this.coverInput = contentEl.createEl("input", {
       cls: "lyrics-tag-cover-input",
@@ -12641,60 +15671,224 @@ var TagEditorModal = class extends import_obsidian8.Modal {
       reader.onload = () => {
         this.tags.cover = { mime: f.type || "image/jpeg", data: new Uint8Array(reader.result) };
         this.renderCoverPreview();
+        this.updateSizeEstimate();
       };
       reader.readAsArrayBuffer(f);
     });
     const actions = contentEl.createDiv({ cls: "lyrics-tag-actions" });
+    const deleteBtn = actions.createEl("button", { cls: "lyrics-tag-delete" });
+    let deleteArmed = false;
+    let armTimer = null;
+    const renderDelete = () => {
+      deleteBtn.empty();
+      if (deleteArmed) {
+        deleteBtn.setText("\u518D\u6B21\u70B9\u51FB\u786E\u8BA4\u5220\u9664");
+        return;
+      }
+      const ic = deleteBtn.createSpan({ cls: "lyrics-tag-delete-icon" });
+      (0, import_obsidian9.setIcon)(ic, "trash");
+      deleteBtn.createSpan({ text: "\u5220\u9664\u6587\u4EF6" });
+    };
+    renderDelete();
+    deleteBtn.addEventListener("click", () => {
+      if (this.saving)
+        return;
+      if (!deleteArmed) {
+        deleteArmed = true;
+        deleteBtn.addClass("lyrics-tag-delete-armed");
+        renderDelete();
+        new import_obsidian9.Notice("\u518D\u6B21\u70B9\u51FB\u786E\u8BA4\u5220\u9664\u8BE5\u6587\u4EF6", 4e3);
+        if (armTimer !== null)
+          window.clearTimeout(armTimer);
+        armTimer = window.setTimeout(() => {
+          deleteArmed = false;
+          deleteBtn.removeClass("lyrics-tag-delete-armed");
+          renderDelete();
+        }, 4e3);
+        return;
+      }
+      if (armTimer !== null)
+        window.clearTimeout(armTimer);
+      void this.deleteFile();
+    });
     actions.createEl("button", { text: "\u53D6\u6D88", cls: "mod-cta lyrics-tag-cancel" }).addEventListener("click", () => this.close());
     actions.createEl("button", { text: "\u4FDD\u5B58", cls: "mod-cta lyrics-tag-save" }).addEventListener("click", () => this.save());
   }
-  /** 用标题/艺术家搜索当前歌曲并选最优匹配；无标题/无结果返回 null（已弹 Notice） */
-  async searchCurrentSong() {
+  /** 用标题/艺术家做多平台搜索，返回候选列表（含来源/时长），供手动选择；无标题返回空 */
+  async searchLyricCandidates() {
     var _a, _b;
     const title = ((_a = this.tags.title) != null ? _a : "").trim() || this.getCurrentFileName().replace(/\.[^.]+$/, "");
     const artist = ((_b = this.tags.artist) != null ? _b : "").trim();
     if (!title) {
-      new import_obsidian8.Notice("\u65E0\u6807\u9898\uFF0C\u65E0\u6CD5\u641C\u7D22");
-      return null;
+      new import_obsidian9.Notice("\u65E0\u6807\u9898\uFF0C\u65E0\u6CD5\u641C\u7D22");
+      return [];
     }
     const query = artist ? `${title} ${artist}` : title;
-    const songs = await searchSong(query);
-    const match = pickBestMatch(songs, title, artist);
-    if (!match) {
-      new import_obsidian8.Notice("\u672A\u627E\u5230\u5339\u914D\u7684\u6B4C\u66F2");
-      return null;
-    }
-    return match;
+    return await searchCandidates(query, this.plugin.getSettings().downloadSources);
   }
-  /** 从网易云拉取当前歌曲歌词，导入歌词框（保存时写回 USLT） */
+  /** 从多平台拉取当前歌曲歌词：搜索后展示候选列表（含来源/时长），点击某条导入歌词框 */
   async fetchOnlineLyrics(lyricsArea, btn) {
     if (this.fetching)
       return;
     this.fetching = true;
-    btn.setAttribute("disabled", "true");
-    btn.setText("\u83B7\u53D6\u4E2D\u2026");
+    btn.setDisabled(true);
+    btn.setButtonText("\u641C\u7D22\u4E2D\u2026");
     try {
-      const match = await this.searchCurrentSong();
-      if (!match)
+      const candidates = await this.searchLyricCandidates();
+      if (candidates.length === 0) {
+        new import_obsidian9.Notice("\u672A\u627E\u5230\u5339\u914D\u7684\u6B4C\u66F2");
         return;
-      const lrc = await fetchLyric(match.id);
+      }
+      this.renderLyricCandidates(candidates, lyricsArea);
+    } catch (e) {
+      new import_obsidian9.Notice(`\u83B7\u53D6\u6B4C\u8BCD\u5931\u8D25\uFF1A${e.message || "\u7F51\u7EDC\u9519\u8BEF"}`, 5e3);
+    } finally {
+      this.fetching = false;
+      btn.setDisabled(false);
+      btn.setButtonText("\u83B7\u53D6\u6B4C\u8BCD");
+    }
+  }
+  /** 渲染多平台歌词候选列表：每行来源胶囊 + 歌名/歌手 + 时长，点击导入对应歌词 */
+  renderLyricCandidates(candidates, lyricsArea) {
+    var _a;
+    const box = this.lyricCandidatesEl;
+    if (!box)
+      return;
+    box.empty();
+    box.removeClass("lyrics-tag-lyric-candidates-hidden");
+    const titleRow = box.createDiv({ cls: "lyrics-tag-lyric-candidates-title" });
+    titleRow.createSpan({ cls: "lyrics-tag-lyric-candidates-title-text", text: "\u9009\u62E9\u6B4C\u8BCD\u6765\u6E90\uFF08\u70B9\u51FB\u5BFC\u5165\uFF09\uFF1A" });
+    const closeBtn = titleRow.createEl("button", { cls: "lyrics-tag-lyric-candidates-close", text: "\u2715" });
+    closeBtn.setAttribute("title", "\u5173\u95ED");
+    closeBtn.addEventListener("click", () => this.hideLyricCandidates());
+    for (const s of candidates) {
+      const row = box.createDiv({ cls: "lyrics-tag-lyric-candidate" });
+      row.setAttribute("data-key", `${s.source}:${s.id}`);
+      row.createSpan({ cls: `lyrics-tag-lyric-source lyrics-tag-lyric-source-${s.source}`, text: (_a = SOURCE_LABELS[s.source]) != null ? _a : s.source });
+      const meta = row.createSpan({ cls: "lyrics-tag-lyric-candidate-meta" });
+      meta.setText(`${s.name} - ${s.artist || "\u672A\u77E5\u827A\u672F\u5BB6"}${s.duration ? ` \xB7 ${formatDuration(s.duration)}` : ""}`);
+      row.addEventListener("click", () => void this.importLyric(s, row, lyricsArea));
+    }
+    this.lyricCandidatesRow = candidates;
+  }
+  /** 拉取并导入所选候选的歌词到歌词框（保存时写回 USLT） */
+  async importLyric(song, row, lyricsArea) {
+    var _a;
+    if (this.fetchingLyrics)
+      return;
+    this.fetchingLyrics = true;
+    row.addClass("lyrics-tag-lyric-candidate-loading");
+    try {
+      const lrc = await fetchSongLyrics(song);
       if (!lrc) {
-        new import_obsidian8.Notice("\u8BE5\u6B4C\u66F2\u65E0\u6B4C\u8BCD");
+        new import_obsidian9.Notice(`\u8BE5\u6B4C\u66F2\u65E0\u6B4C\u8BCD\uFF08${(_a = SOURCE_LABELS[song.source]) != null ? _a : song.source}\uFF09`, 4e3);
         return;
       }
       lyricsArea.value = lrc;
       this.tags.lyrics = lrc;
-      const matchLabel = [match.name, ...match.artists].filter(Boolean).join(" - ");
-      new import_obsidian8.Notice(`\u5DF2\u5BFC\u5165\u6B4C\u8BCD\uFF1A${matchLabel}`, 3e3);
+      this.updateSizeEstimate();
+      new import_obsidian9.Notice(`\u5DF2\u5BFC\u5165\u6B4C\u8BCD\uFF1A${song.name} - ${song.artist}`, 3e3);
     } catch (e) {
-      new import_obsidian8.Notice(`\u83B7\u53D6\u6B4C\u8BCD\u5931\u8D25\uFF1A${e.message || "\u7F51\u7EDC\u9519\u8BEF"}`, 5e3);
+      new import_obsidian9.Notice(`\u83B7\u53D6\u6B4C\u8BCD\u5931\u8D25\uFF1A${e.message || "\u7F51\u7EDC\u9519\u8BEF"}`, 5e3);
     } finally {
-      this.fetching = false;
-      btn.removeAttribute("disabled");
-      btn.setText("\u83B7\u53D6\u6B4C\u8BCD");
+      this.fetchingLyrics = false;
+      row.removeClass("lyrics-tag-lyric-candidate-loading");
     }
   }
-  /** 从网易云拉取当前歌曲封面，写入标签（保存时写回 APIC 帧） */
+  /** 收起多平台歌词候选列表 */
+  hideLyricCandidates() {
+    if (this.lyricCandidatesEl) {
+      this.lyricCandidatesEl.empty();
+      this.lyricCandidatesEl.addClass("lyrics-tag-lyric-candidates-hidden");
+    }
+  }
+  /** 逐行翻译歌词为 `原文 | 译文` 双语格式（翻译源取设置，失败降级 MyMemory）；翻译中按钮变「取消」可随时中断，结果写回歌词框 */
+  async translateLyrics(lyricsArea, btn) {
+    var _a, _b, _c, _d, _e;
+    if (this.translating) {
+      this.translateCancelled = true;
+      return;
+    }
+    const text = ((_b = (_a = this.tags.lyrics) != null ? _a : lyricsArea.value) != null ? _b : "").trim();
+    if (!text) {
+      new import_obsidian9.Notice("\u8BF7\u5148\u8F93\u5165\u6216\u83B7\u53D6\u6B4C\u8BCD\u518D\u7FFB\u8BD1");
+      return;
+    }
+    this.translating = true;
+    this.translateCancelled = false;
+    this.translateStartedAt = performance.now();
+    const settings = this.plugin.getSettings();
+    const provider = (_c = settings.translateProvider) != null ? _c : "auto";
+    const translateCookie = provider === "baidu" ? (_d = settings.translateBaiduCookie) != null ? _d : "" : provider === "youdao" ? (_e = settings.translateYoudaoCookie) != null ? _e : "" : "";
+    btn.setButtonText("\u53D6\u6D88");
+    this.showTranslateProgress(0, "\u6B63\u5728\u7FFB\u8BD1\u2026", 0, 1);
+    try {
+      const bilingual = await translateLyricText(
+        text,
+        "zh-CN",
+        (done, total) => {
+          const pct = total > 0 ? Math.round(done / total * 100) : 0;
+          const elapsed = performance.now() - this.translateStartedAt;
+          const etaMs = total > 0 && done > 0 ? elapsed / done * (total - done) : 0;
+          this.showTranslateProgress(pct, `\u6B63\u5728\u7FFB\u8BD1 ${done}/${total} \u884C`, etaMs, total);
+        },
+        provider,
+        () => this.translateCancelled,
+        translateCookie
+      );
+      if (!bilingual) {
+        new import_obsidian9.Notice(this.translateCancelled ? "\u5DF2\u53D6\u6D88\u7FFB\u8BD1" : "\u7FFB\u8BD1\u5931\u8D25\uFF08\u7F51\u7EDC\u9519\u8BEF\u6216\u6B4C\u8BCD\u4E3A\u7A7A\uFF09", 5e3);
+        return;
+      }
+      lyricsArea.value = bilingual;
+      this.tags.lyrics = bilingual;
+      this.updateSizeEstimate();
+      new import_obsidian9.Notice(this.translateCancelled ? `\u5DF2\u4E2D\u65AD\uFF0C\u4FDD\u7559\u5DF2\u7FFB\u8BD1 ${this.countTranslated(bilingual)} \u884C` : "\u5DF2\u751F\u6210 \u539F\u6587 | \u8BD1\u6587 \u53CC\u8BED\u6B4C\u8BCD", 3e3);
+    } catch (e) {
+      new import_obsidian9.Notice(`\u7FFB\u8BD1\u5931\u8D25\uFF1A${e.message || "\u7F51\u7EDC\u9519\u8BEF"}`, 5e3);
+    } finally {
+      this.translating = false;
+      this.translateCancelled = false;
+      this.hideTranslateProgress();
+      btn.setButtonText("\u7FFB\u8BD1\u6B4C\u8BCD");
+    }
+  }
+  /** 统计已翻译行数（含 ` | ` 分隔的） */
+  countTranslated(bilingual) {
+    return bilingual.split(/\r?\n/).filter((l) => l.includes(" | ")).length;
+  }
+  /** 显示并更新翻译进度条（percent 0-100；label 状态文字；etaMs 预计剩余毫秒，0 或不足则省略） */
+  showTranslateProgress(percent, label, etaMs = 0, total = 0) {
+    if (!this.translateProgressWrap || !this.translateProgressFill || !this.translateProgressText)
+      return;
+    this.translateProgressWrap.removeClass("lyrics-tag-translate-progress-hidden");
+    this.translateProgressFill.style.width = `${percent}%`;
+    let text = `${label}\uFF08${percent}%\uFF09`;
+    if (etaMs > 0 && total > 1) {
+      const eta = this.formatEta(etaMs);
+      if (eta)
+        text += ` \xB7 \u9884\u8BA1\u5269\u4F59 ${eta}`;
+    }
+    this.translateProgressText.setText(text);
+  }
+  /** 格式化预计剩余时长：≥1 分钟 → X分Y秒；否则 → X秒 */
+  formatEta(ms) {
+    const sec = Math.max(1, Math.round(ms / 1e3));
+    if (sec >= 60) {
+      const m = Math.floor(sec / 60);
+      const s = sec % 60;
+      return `${m}\u5206${s}\u79D2`;
+    }
+    return `${sec}\u79D2`;
+  }
+  /** 隐藏翻译进度条 */
+  hideTranslateProgress() {
+    if (!this.translateProgressWrap || !this.translateProgressFill)
+      return;
+    this.translateProgressWrap.addClass("lyrics-tag-translate-progress-hidden");
+    this.translateProgressFill.style.width = "0%";
+  }
+  /** 从多平台候选拉取当前歌曲封面（优先网易云），写入标签（保存时写回 APIC 帧） */
   async fetchCover(btn) {
     if (this.fetching)
       return;
@@ -12702,24 +15896,23 @@ var TagEditorModal = class extends import_obsidian8.Modal {
     btn.setDisabled(true);
     btn.setButtonText("\u83B7\u53D6\u4E2D\u2026");
     try {
-      const match = await this.searchCurrentSong();
-      if (!match)
-        return;
-      if (!match.coverUrl) {
-        new import_obsidian8.Notice("\u8BE5\u6B4C\u66F2\u65E0\u5C01\u9762");
+      const candidates = await this.searchLyricCandidates();
+      const withCover = candidates.find((c) => c.coverUrl);
+      if (!withCover || !withCover.coverUrl) {
+        new import_obsidian9.Notice("\u8BE5\u6B4C\u66F2\u65E0\u5C01\u9762");
         return;
       }
-      const img = await downloadImage(match.coverUrl);
+      const img = await downloadImage(withCover.coverUrl);
       if (!img) {
-        new import_obsidian8.Notice("\u5C01\u9762\u4E0B\u8F7D\u5931\u8D25");
+        new import_obsidian9.Notice("\u5C01\u9762\u4E0B\u8F7D\u5931\u8D25");
         return;
       }
       this.tags.cover = img;
       this.renderCoverPreview();
-      const matchLabel = [match.name, ...match.artists].filter(Boolean).join(" - ");
-      new import_obsidian8.Notice(`\u5DF2\u5BFC\u5165\u5C01\u9762\uFF1A${matchLabel}`, 3e3);
+      this.updateSizeEstimate();
+      new import_obsidian9.Notice(`\u5DF2\u5BFC\u5165\u5C01\u9762\uFF1A${withCover.name} - ${withCover.artist}`, 3e3);
     } catch (e) {
-      new import_obsidian8.Notice(`\u83B7\u53D6\u5C01\u9762\u5931\u8D25\uFF1A${e.message || "\u7F51\u7EDC\u9519\u8BEF"}`, 5e3);
+      new import_obsidian9.Notice(`\u83B7\u53D6\u5C01\u9762\u5931\u8D25\uFF1A${e.message || "\u7F51\u7EDC\u9519\u8BEF"}`, 5e3);
     } finally {
       this.fetching = false;
       btn.setDisabled(false);
@@ -12737,6 +15930,37 @@ var TagEditorModal = class extends import_obsidian8.Modal {
       return (_a = this.source.path.split(/[\\/]/).pop()) != null ? _a : "";
     }
     return "";
+  }
+  /** 当前音频的绝对路径：vault 用 adapter.getFullPath（磁盘真实路径），库外即 source.path */
+  getCurrentAbsolutePath() {
+    if (!this.source)
+      return "\u672A\u77E5";
+    if (this.source.type === "vault" && this.source.file) {
+      try {
+        const adapter = this.app.vault.adapter;
+        return typeof (adapter == null ? void 0 : adapter.getFullPath) === "function" ? adapter.getFullPath(this.source.file.path) : this.source.file.path;
+      } catch (e) {
+        return this.source.file.path;
+      }
+    }
+    if (this.source.type === "external" && this.source.path)
+      return this.source.path;
+    return "\u672A\u77E5";
+  }
+  /** 实时刷新「当前大小 → 预计保存后大小」提示（歌词/封面/文本编辑时调用） */
+  updateSizeEstimate() {
+    if (!this.sizeDescEl)
+      return;
+    const current = formatBytes(this.fileSizeBytes);
+    if (this.fileSizeBytes <= 0) {
+      this.sizeDescEl.setText(`\u5F53\u524D ${current}`);
+      return;
+    }
+    const newEmbedded = estimateEmbeddedSize(this.tags);
+    const estimated = Math.max(0, this.fileSizeBytes - this.baselineEmbedded + newEmbedded);
+    const delta = estimated - this.fileSizeBytes;
+    const deltaText = delta === 0 ? "" : `\uFF08${delta > 0 ? "+" : "-"}${formatBytes(Math.abs(delta))}\uFF09`;
+    this.sizeDescEl.setText(`\u5F53\u524D ${current} \u2192 \u9884\u8BA1\u4FDD\u5B58\u540E ${formatBytes(estimated)}${deltaText}`);
   }
   renderCoverPreview() {
     if (!this.coverPreview)
@@ -12764,15 +15988,15 @@ var TagEditorModal = class extends import_obsidian8.Modal {
     try {
       const ok = await writeMp3Tags(this.app, this.source, this.tags);
       if (!ok) {
-        new import_obsidian8.Notice("\u4FDD\u5B58\u5931\u8D25\uFF0C\u5DF2\u8FD8\u539F\u539F\u6587\u4EF6", 5e3);
+        new import_obsidian9.Notice("\u4FDD\u5B58\u5931\u8D25\uFF0C\u5DF2\u8FD8\u539F\u539F\u6587\u4EF6", 5e3);
         return;
       }
       const renamed = await this.renameAudioFile();
       if (!renamed) {
-        new import_obsidian8.Notice("\u6807\u7B7E\u5DF2\u4FDD\u5B58\uFF0C\u4F46\u6587\u4EF6\u540D\u91CD\u547D\u540D\u5931\u8D25\uFF08\u6807\u7B7E\u5DF2\u5199\u5165\u539F\u6587\u4EF6\uFF09", 5e3);
+        new import_obsidian9.Notice("\u6807\u7B7E\u5DF2\u4FDD\u5B58\uFF0C\u4F46\u6587\u4EF6\u540D\u91CD\u547D\u540D\u5931\u8D25\uFF08\u6807\u7B7E\u5DF2\u5199\u5165\u539F\u6587\u4EF6\uFF09", 5e3);
         return;
       }
-      new import_obsidian8.Notice("\u4FDD\u5B58\u6210\u529F");
+      new import_obsidian9.Notice("\u4FDD\u5B58\u6210\u529F");
       const refreshKey = this.notePath || (((_a = this.source) == null ? void 0 : _a.type) === "vault" ? (_b = this.source.file) == null ? void 0 : _b.path : (_c = this.source) == null ? void 0 : _c.path) || "";
       if (refreshKey)
         this.plugin.notifyTagsEdited(refreshKey);
@@ -12780,6 +16004,35 @@ var TagEditorModal = class extends import_obsidian8.Modal {
     } finally {
       this.saving = false;
     }
+  }
+  /** 删除当前歌曲文件：vault 内移入系统回收站（可恢复），库外永久删除；删除正在播放的文件会停播并复位 */
+  async deleteFile() {
+    var _a;
+    if (!this.source || this.saving)
+      return;
+    this.saving = true;
+    const name = this.getCurrentFileName();
+    try {
+      if (this.source.type === "vault" && this.source.file) {
+        await this.app.vault.trash(this.source.file, true);
+      } else if (this.source.type === "external" && this.source.path) {
+        const fs = window.require("fs");
+        await fs.promises.unlink(this.source.path);
+      } else {
+        new import_obsidian9.Notice("\u672A\u627E\u5230\u6587\u4EF6\uFF0C\u65E0\u6CD5\u5220\u9664");
+        return;
+      }
+    } catch (e) {
+      new import_obsidian9.Notice("\u5220\u9664\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u6587\u4EF6\u6743\u9650", 5e3);
+      return;
+    } finally {
+      this.saving = false;
+    }
+    const audioPath = this.source.type === "vault" ? (_a = this.source.file) == null ? void 0 : _a.path : this.source.path;
+    if (audioPath)
+      await this.plugin.handleAudioDeleted(audioPath);
+    new import_obsidian9.Notice(`\u5DF2\u5220\u9664\uFF1A${name}`, 4e3);
+    this.close();
   }
   /** 重命名音频文件：vault 内用 Obsidian 重命名（自动更新引用），库外用 fs 重命名 + 同步笔记 source 行 */
   async renameAudioFile() {
@@ -12819,7 +16072,7 @@ var TagEditorModal = class extends import_obsidian8.Modal {
   async updateNoteSourceLine(oldPath, newPath) {
     var _a;
     const file = this.app.vault.getAbstractFileByPath(this.notePath);
-    if (!(file instanceof import_obsidian8.TFile))
+    if (!(file instanceof import_obsidian9.TFile))
       return;
     try {
       const content = await this.app.vault.read(file);
@@ -12843,8 +16096,8 @@ var TagEditorModal = class extends import_obsidian8.Modal {
 };
 
 // src/TagViewerModal.ts
-var import_obsidian9 = require("obsidian");
-var TagViewerModal = class extends import_obsidian9.Modal {
+var import_obsidian10 = require("obsidian");
+var TagViewerModal = class extends import_obsidian10.Modal {
   constructor(app, source) {
     super(app);
     this.source = null;
@@ -12856,7 +16109,7 @@ var TagViewerModal = class extends import_obsidian9.Modal {
     this.titleEl.setText("\u67E5\u770B\u6807\u7B7E");
     this.contentEl.createDiv({ cls: "lyrics-tag-loading", text: "\u6B63\u5728\u8BFB\u53D6\u6807\u7B7E\u2026" });
     if (!this.source) {
-      new import_obsidian9.Notice("\u672A\u627E\u5230\u97F3\u9891\u6587\u4EF6");
+      new import_obsidian10.Notice("\u672A\u627E\u5230\u97F3\u9891\u6587\u4EF6");
       this.close();
       return;
     }
@@ -12871,7 +16124,7 @@ var TagViewerModal = class extends import_obsidian9.Modal {
     } catch (e) {
     }
     if (!bytes) {
-      new import_obsidian9.Notice("\u8BFB\u53D6\u6807\u7B7E\u5931\u8D25", 4e3);
+      new import_obsidian10.Notice("\u8BFB\u53D6\u6807\u7B7E\u5931\u8D25", 4e3);
       this.close();
       return;
     }
@@ -12881,16 +16134,16 @@ var TagViewerModal = class extends import_obsidian9.Modal {
   }
   render(tags) {
     const t = tags != null ? tags : {};
-    new import_obsidian9.Setting(this.contentEl).setName("\u6807\u9898").setDesc(t.title || "\uFF08\u65E0\uFF09");
-    new import_obsidian9.Setting(this.contentEl).setName("\u827A\u672F\u5BB6").setDesc(t.artist || "\uFF08\u65E0\uFF09");
-    new import_obsidian9.Setting(this.contentEl).setName("\u4E13\u8F91").setDesc(t.album || "\uFF08\u65E0\uFF09");
-    new import_obsidian9.Setting(this.contentEl).setName("\u6B4C\u8BCD").setDesc("\u53EA\u8BFB\u5C55\u793A\uFF0C\u5982\u9700\u4FEE\u6539\u8BF7\u7528\u5916\u90E8\u5DE5\u5177\u7F16\u8F91\u6807\u7B7E");
+    new import_obsidian10.Setting(this.contentEl).setName("\u6807\u9898").setDesc(t.title || "\uFF08\u65E0\uFF09");
+    new import_obsidian10.Setting(this.contentEl).setName("\u827A\u672F\u5BB6").setDesc(t.artist || "\uFF08\u65E0\uFF09");
+    new import_obsidian10.Setting(this.contentEl).setName("\u4E13\u8F91").setDesc(t.album || "\uFF08\u65E0\uFF09");
+    new import_obsidian10.Setting(this.contentEl).setName("\u6B4C\u8BCD").setDesc("\u53EA\u8BFB\u5C55\u793A\uFF0C\u5982\u9700\u4FEE\u6539\u8BF7\u7528\u5916\u90E8\u5DE5\u5177\u7F16\u8F91\u6807\u7B7E");
     const lyricsArea = this.contentEl.createEl("textarea", {
       cls: "lyrics-tag-lyrics"
     });
     lyricsArea.value = t.lyrics || "";
     lyricsArea.readOnly = true;
-    new import_obsidian9.Setting(this.contentEl).setName("\u5C01\u9762");
+    new import_obsidian10.Setting(this.contentEl).setName("\u5C01\u9762");
     if (t.cover) {
       const url = URL.createObjectURL(new Blob([t.cover.data], { type: t.cover.mime }));
       const img = this.contentEl.createEl("img", { cls: "lyrics-tag-cover-img" });
@@ -12909,8 +16162,552 @@ var TagViewerModal = class extends import_obsidian9.Modal {
   }
 };
 
+// src/DownloadModal.ts
+var import_obsidian11 = require("obsidian");
+var SEARCH_DEBOUNCE_MS = 300;
+var SOURCE_LABELS2 = {
+  netease: "\u7F51\u6613\u4E91",
+  qq: "QQ",
+  kugou: "\u9177\u72D7",
+  kuwo: "\u9177\u6211"
+};
+function renderCoverPlaceholder(el) {
+  el.empty();
+  el.addClass("lyrics-download-item-cover-placeholder");
+  (0, import_obsidian11.setIcon)(el, "music");
+}
+var DownloadModal = class extends import_obsidian11.Modal {
+  constructor(app, plugin) {
+    super(app);
+    this.plugin = plugin;
+    this.downloading = false;
+    this.searchInput = null;
+    this.resultEl = null;
+    this.progressWrap = null;
+    this.progressFill = null;
+    this.progressText = null;
+    /** 试听（v1.4.1）：当前播放的 audio 元素与关联行 key（`${source}:${id}`），null=无播放 */
+    this.previewAudio = null;
+    this.previewKey = "";
+    /** 试听 blob URL：停止时显式 revokeObjectURL 立即释放（避免残留未回收的 URL 对象） */
+    this.previewBlobUrl = "";
+    /** 实时搜索防抖定时器 */
+    this.debounceTimer = null;
+    /** 搜索代际令牌：新搜索使在途旧搜索结果作废 */
+    this.searchSeq = 0;
+    /** 推荐歌单代际令牌：切换来源/刷新使在途旧歌单请求作废（防慢来源覆盖新选中来源） */
+    this.playlistSeq = 0;
+    /** 结果区当前模式：'search' 搜索结果 / 'playlists' 推荐歌单首屏 / 'playlist' 歌单歌曲 */
+    this.mode = "search";
+    /** 当前展示的推荐歌单来源（首屏胶囊切换） */
+    this.currentSource = "netease";
+    /** 已加载的推荐歌单（免登录，缓存避免重复请求） */
+    this.playlists = [];
+    /** 推荐歌单缓存（按 source）：切换胶囊/返回首屏命中直接渲染，不重复请求 */
+    this.playlistCache = {};
+    /** 歌单歌曲缓存（key=`${source}:${id}`）：返回/重开命中直接渲染 */
+    this.playlistSongsCache = {};
+    /** 当前打开的歌单（歌单歌曲视图的返回目标） */
+    this.currentPlaylist = null;
+    /** 搜索渐进渲染去重：已渲染的行 key（`${source}:${id}`），每次新搜索清空 */
+    this.pendingSeen = /* @__PURE__ */ new Set();
+    /** 渐进增量排序：已到达的搜索结果（按相似度有序），每批到达插入正确位置，最终不再重排 */
+    this.pendingResults = [];
+    /** 渐进渲染当前关键词（用于增量排序打分） */
+    this.pendingKeyword = "";
+  }
+  async onOpen() {
+    this.contentEl.empty();
+    this.contentEl.addClass("lyrics-download-modal");
+    this.titleEl.setText("\u4E0B\u8F7D\u6B4C\u66F2");
+    const { contentEl } = this;
+    const state = this.plugin.getLyricsState();
+    const preset = [
+      (state == null ? void 0 : state.title) && state.title !== "\u672A\u77E5\u6B4C\u66F2" ? state.title : "",
+      (state == null ? void 0 : state.actor) && state.actor !== "\u672A\u77E5\u827A\u672F\u5BB6" ? state.actor : ""
+    ].filter(Boolean).join(" ");
+    const searchRow = contentEl.createDiv({ cls: "lyrics-download-search" });
+    this.searchInput = searchRow.createEl("input", {
+      cls: "lyrics-download-search-input",
+      attr: { type: "text", placeholder: "\u8F93\u5165\u6B4C\u540D / \u6B4C\u624B\uFF0C\u5982\uFF1A\u6674\u5929 \u5468\u6770\u4F26" }
+    });
+    this.searchInput.value = preset;
+    const searchBtn = searchRow.createEl("button", { text: "\u641C\u7D22", cls: "mod-cta lyrics-download-search-btn" });
+    const recommendBtn = searchRow.createEl("button", { text: "\u63A8\u8350\u6B4C\u5355", cls: "lyrics-download-recommend-btn" });
+    recommendBtn.addEventListener("click", () => {
+      if (this.debounceTimer !== null) {
+        window.clearTimeout(this.debounceTimer);
+        this.debounceTimer = null;
+      }
+      void this.loadRecommendedPlaylists(this.currentSource);
+    });
+    const searchNow = () => {
+      if (this.debounceTimer !== null) {
+        window.clearTimeout(this.debounceTimer);
+        this.debounceTimer = null;
+      }
+      void this.doSearch();
+    };
+    searchBtn.addEventListener("click", searchNow);
+    this.searchInput.addEventListener("input", () => this.scheduleSearch());
+    this.searchInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter")
+        searchNow();
+    });
+    this.progressWrap = contentEl.createDiv({ cls: "lyrics-download-progress lyrics-download-progress-hidden" });
+    const track = this.progressWrap.createDiv({ cls: "lyrics-download-progress-track" });
+    this.progressFill = track.createDiv({ cls: "lyrics-download-progress-fill" });
+    this.progressText = this.progressWrap.createDiv({ cls: "lyrics-download-progress-text" });
+    this.resultEl = contentEl.createDiv({ cls: "lyrics-download-results" });
+    if (preset)
+      void this.doSearch();
+    else
+      void this.loadRecommendedPlaylists("netease");
+  }
+  /** 停止输入 SEARCH_DEBOUNCE_MS 后触发搜索 */
+  scheduleSearch() {
+    if (this.debounceTimer !== null)
+      window.clearTimeout(this.debounceTimer);
+    this.debounceTimer = window.setTimeout(() => {
+      this.debounceTimer = null;
+      void this.doSearch();
+    }, SEARCH_DEBOUNCE_MS);
+  }
+  /** 用当前输入值实时搜索并渲染结果下拉；代际令牌保证只有最新输入的结果生效 */
+  async doSearch() {
+    var _a, _b, _c, _d;
+    this.mode = "search";
+    this.currentPlaylist = null;
+    const keyword = ((_b = (_a = this.searchInput) == null ? void 0 : _a.value) != null ? _b : "").trim();
+    if (!keyword) {
+      this.searchSeq++;
+      this.renderSearching("\u8F93\u5165\u6B4C\u540D / \u6B4C\u624B\u5F00\u59CB\u641C\u7D22");
+      return;
+    }
+    const mySeq = ++this.searchSeq;
+    this.renderSearching("\u641C\u7D22\u4E2D\u2026");
+    this.pendingSeen = /* @__PURE__ */ new Set();
+    this.pendingResults = [];
+    this.pendingKeyword = keyword;
+    let networkError = false;
+    await searchCandidates(
+      keyword,
+      this.plugin.getSettings().downloadSources,
+      (partial) => {
+        var _a2, _b2;
+        if (mySeq !== this.searchSeq)
+          return;
+        if (this.mode !== "search")
+          return;
+        if (((_b2 = (_a2 = this.searchInput) == null ? void 0 : _a2.value) != null ? _b2 : "").trim() !== keyword)
+          return;
+        this.appendResultRows(partial);
+      },
+      (netErr) => {
+        networkError = netErr;
+      }
+    );
+    if (mySeq !== this.searchSeq)
+      return;
+    if (this.mode !== "search")
+      return;
+    if (((_d = (_c = this.searchInput) == null ? void 0 : _c.value) != null ? _d : "").trim() !== keyword)
+      return;
+    if (this.pendingResults.length === 0) {
+      this.renderSearching(networkError ? "\u7F51\u7EDC\u9519\u8BEF\uFF0C\u8BF7\u68C0\u67E5\u7F51\u7EDC\u540E\u91CD\u8BD5" : "\u672A\u627E\u5230\u5339\u914D\u7684\u6B4C\u66F2");
+    }
+  }
+  /** 渲染结果下拉：每行 歌名/艺术家/专辑 + 来源标签 + 下载按钮。ctx.playlist 时顶部附加返回推荐歌单头（含实际歌曲数 + 刷新） */
+  renderResults(results, ctx) {
+    if (!this.resultEl)
+      return;
+    this.stopPreview();
+    this.resultEl.empty();
+    if (ctx == null ? void 0 : ctx.playlist)
+      this.appendPlaylistHeader(ctx.playlist, ctx == null ? void 0 : ctx.count, ctx == null ? void 0 : ctx.onRefresh);
+    if (results.length === 0) {
+      this.resultEl.createDiv({ cls: "lyrics-download-empty", text: (ctx == null ? void 0 : ctx.playlist) ? "\u6B4C\u5355\u6682\u65E0\u6B4C\u66F2" : "\u672A\u627E\u5230\u5339\u914D\u7684\u6B4C\u66F2" });
+      return;
+    }
+    for (const song of results)
+      this.renderResultRow(song);
+  }
+  /** 渲染单行搜索结果（封面 + 歌名/艺术家/专辑 + 元数据胶囊 + 来源标签 + 下载按钮），返回行元素 */
+  renderResultRow(song) {
+    var _a;
+    const root = this.resultEl;
+    const row = root.createDiv({ cls: "lyrics-download-item" });
+    row.setAttribute("data-dl-key", `${song.source}:${song.id}`);
+    const coverEl = row.createDiv({ cls: "lyrics-download-item-cover" });
+    if (song.coverUrl) {
+      const img = coverEl.createEl("img", { cls: "lyrics-download-item-cover-img" });
+      img.addEventListener("error", () => {
+        img.remove();
+        renderCoverPlaceholder(coverEl);
+      });
+      img.src = song.coverUrl;
+    } else {
+      renderCoverPlaceholder(coverEl);
+    }
+    const info = row.createDiv({ cls: "lyrics-download-item-info" });
+    info.createDiv({ cls: "lyrics-download-item-name", text: song.name });
+    const artistLine = song.artist || "\u672A\u77E5\u827A\u672F\u5BB6";
+    info.createDiv({
+      cls: "lyrics-download-item-artist",
+      text: song.album ? `${artistLine} \xB7 ${song.album}` : artistLine
+    });
+    const metaEl = info.createDiv({ cls: "lyrics-download-item-meta" });
+    if (song.vip) {
+      metaEl.createSpan({ cls: "lyrics-download-item-pill lyrics-download-item-pill-vip", text: "VIP" });
+    }
+    const durationStr = formatDuration(song.duration);
+    if (durationStr)
+      metaEl.createSpan({ cls: "lyrics-download-item-pill", text: durationStr });
+    if (song.size)
+      metaEl.createSpan({ cls: "lyrics-download-item-pill", text: formatBytes(song.size) });
+    if (song.bitrate)
+      metaEl.createSpan({ cls: "lyrics-download-item-pill", text: `${song.bitrate}kbps` });
+    row.createDiv({
+      cls: "lyrics-download-item-tag",
+      text: (_a = SOURCE_LABELS2[song.source]) != null ? _a : song.source
+    });
+    const prevBtn = row.createDiv({ cls: "lyrics-download-item-btn lyrics-download-item-preview-btn" });
+    (0, import_obsidian11.setIcon)(prevBtn, "play");
+    prevBtn.setAttribute("title", "\u8BD5\u542C\uFF08\u62C9\u53D6\u6807\u51C6\u6863\u97F3\u9891\uFF0C\u4E0D\u5199\u5165\u5E93\uFF09");
+    prevBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void this.togglePreview(song, prevBtn);
+    });
+    const dlBtn = row.createDiv({ cls: "lyrics-download-item-btn" });
+    (0, import_obsidian11.setIcon)(dlBtn, "download");
+    dlBtn.setAttribute("title", song.needsCookie ? "\u4E0B\u8F7D\uFF08\u9700 QQ \u767B\u5F55 Cookie\uFF09" : "\u4E0B\u8F7D\u5230\u97F3\u9891\u6587\u4EF6\u5939");
+    dlBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void this.downloadOne(song, dlBtn);
+    });
+    return row;
+  }
+  /** 试听：点击播放（拉字节→Blob），再点或切行停止；播放中该行按钮图标变 stop */
+  async togglePreview(song, btn) {
+    var _a, _b;
+    const key = `${song.source}:${song.id}`;
+    if (this.previewAudio && this.previewKey === key) {
+      this.stopPreview();
+      return;
+    }
+    if (this.previewAudio)
+      this.stopPreview();
+    this.previewKey = key;
+    btn.empty();
+    (0, import_obsidian11.setIcon)(btn, "square");
+    btn.addClass("lyrics-download-item-btn-previewing");
+    this.renderProgress(null, `\u6B63\u5728\u8BD5\u542C ${song.name}\u2026`);
+    (_a = this.progressWrap) == null ? void 0 : _a.removeClass("lyrics-download-progress-hidden");
+    try {
+      const res = await previewAudio(song, this.plugin.getSettings().platformCookies, (percent, label) => {
+        this.renderProgress(percent, label);
+      });
+      if (this.previewKey !== key)
+        return;
+      if (!res.ok || !res.data) {
+        new import_obsidian11.Notice(res.message, 6e3);
+        this.stopPreview();
+        return;
+      }
+      if (res.fromCache) {
+        this.renderProgress(100, "\u5DF2\u4ECE\u7F13\u5B58\u52A0\u8F7D");
+      }
+      const mime = res.ext === "m4a" ? "audio/mp4" : res.ext === "flac" ? "audio/flac" : "audio/mpeg";
+      this.previewBlobUrl = URL.createObjectURL(new Blob([res.data], { type: mime }));
+      const audio = new Audio(this.previewBlobUrl);
+      audio.addEventListener("ended", () => {
+        if (this.previewAudio !== audio)
+          return;
+        this.stopPreview();
+      });
+      audio.addEventListener("error", () => {
+        if (this.previewAudio !== audio)
+          return;
+        if (this.previewKey === key)
+          new import_obsidian11.Notice("\u8BD5\u542C\u97F3\u9891\u64AD\u653E\u5931\u8D25", 5e3);
+        this.stopPreview();
+      });
+      this.previewAudio = audio;
+      await audio.play();
+      (_b = this.progressWrap) == null ? void 0 : _b.addClass("lyrics-download-progress-hidden");
+    } catch (e) {
+      new import_obsidian11.Notice(`\u8BD5\u542C\u51FA\u9519\uFF1A${e instanceof Error ? e.message : String(e)}`, 6e3);
+      this.stopPreview();
+    }
+  }
+  /** 停止试听并清理 Blob URL、恢复按钮图标 */
+  stopPreview() {
+    var _a, _b;
+    if (this.previewAudio) {
+      this.previewAudio.pause();
+      this.previewAudio.src = "";
+      this.previewAudio = null;
+    }
+    if (this.previewBlobUrl) {
+      URL.revokeObjectURL(this.previewBlobUrl);
+      this.previewBlobUrl = "";
+    }
+    if (this.previewKey) {
+      const prevBtn = (_a = this.resultEl) == null ? void 0 : _a.querySelector(`[data-dl-key="${CSS.escape(this.previewKey)}"] .lyrics-download-item-preview-btn`);
+      if (prevBtn) {
+        prevBtn.empty();
+        prevBtn.setAttribute("title", "\u8BD5\u542C\uFF08\u62C9\u53D6\u6807\u51C6\u6863\u97F3\u9891\uFF0C\u4E0D\u5199\u5165\u5E93\uFF09");
+        prevBtn.removeClass("lyrics-download-item-btn-previewing");
+        (0, import_obsidian11.setIcon)(prevBtn, "play");
+      }
+      this.previewKey = "";
+    }
+    (_b = this.progressWrap) == null ? void 0 : _b.addClass("lyrics-download-progress-hidden");
+  }
+  /** 搜索渐进渲染：把新到达的平台结果按相似度**增量插入**有序位置（首个到达时清掉「搜索中…」占位），最终不再重排 */
+  appendResultRows(songs) {
+    if (!this.resultEl)
+      return;
+    const keyword = this.pendingKeyword;
+    const fresh = songs.filter((s) => !this.pendingSeen.has(`${s.source}:${s.id}`));
+    if (fresh.length === 0)
+      return;
+    const wasEmpty = this.pendingSeen.size === 0;
+    for (const s of fresh)
+      this.pendingSeen.add(`${s.source}:${s.id}`);
+    if (wasEmpty)
+      this.resultEl.empty();
+    for (const s of fresh) {
+      const score = songSimilarityScore(keyword, s.name, s.artist);
+      let idx = this.pendingResults.length;
+      for (let i = 0; i < this.pendingResults.length; i++) {
+        const cur = this.pendingResults[i];
+        const cs = songSimilarityScore(keyword, cur.name, cur.artist);
+        const better = cs < score || cs === score && (s.name.length < cur.name.length || s.name.length === cur.name.length && s.name.localeCompare(cur.name) < 0);
+        if (better) {
+          idx = i;
+          break;
+        }
+      }
+      this.pendingResults.splice(idx, 0, s);
+      const row = this.renderResultRow(s);
+      if (idx === 0) {
+        this.resultEl.insertBefore(row, this.resultEl.firstChild);
+      } else {
+        const prev = this.pendingResults[idx - 1];
+        const prevEl = this.resultEl.querySelector(`[data-dl-key="${prev.source}:${prev.id}"]`);
+        if (prevEl)
+          prevEl.after(row);
+        else
+          this.resultEl.appendChild(row);
+      }
+    }
+  }
+  /** 加载并渲染推荐歌单首屏（多源，全免登录）；命中缓存直接渲染，force=true 强制刷新；被搜索/关闭打断则丢弃结果 */
+  async loadRecommendedPlaylists(source = this.currentSource, force = false) {
+    this.mode = "playlists";
+    this.currentSource = source;
+    this.currentPlaylist = null;
+    this.searchSeq++;
+    if (!this.resultEl)
+      return;
+    if (!force && this.playlistCache[source]) {
+      this.playlists = this.playlistCache[source];
+      this.renderPlaylists();
+      return;
+    }
+    const mySeq = ++this.playlistSeq;
+    this.resultEl.empty();
+    this.resultEl.createDiv({ cls: "lyrics-download-empty", text: "\u52A0\u8F7D\u63A8\u8350\u6B4C\u5355\u2026" });
+    const list = await fetchRecommendedPlaylists(source);
+    if (mySeq !== this.playlistSeq || this.currentSource !== source || this.mode !== "playlists")
+      return;
+    this.playlistCache[source] = list;
+    this.playlists = list;
+    this.renderPlaylists();
+  }
+  /** 渲染推荐歌单首屏：头部四源胶囊（点击切换）+ 刷新按钮 + 卡片列表，点卡片进入歌单 */
+  renderPlaylists() {
+    if (!this.resultEl)
+      return;
+    this.resultEl.empty();
+    const head = this.resultEl.createDiv({ cls: "lyrics-download-playlist-head" });
+    head.createDiv({ cls: "lyrics-download-playlist-head-title", text: "\u63A8\u8350\u6B4C\u5355" });
+    const refresh = head.createDiv({ cls: "lyrics-download-playlist-refresh" });
+    (0, import_obsidian11.setIcon)(refresh, "refresh-cw");
+    refresh.setAttribute("title", "\u5237\u65B0\u63A8\u8350\u6B4C\u5355");
+    refresh.addEventListener("click", () => void this.loadRecommendedPlaylists(this.currentSource, true));
+    const sources = this.resultEl.createDiv({ cls: "lyrics-download-playlist-sources" });
+    for (const key of Object.keys(SOURCE_LABELS2)) {
+      const tag = sources.createSpan({
+        cls: `lyrics-download-item-tag lyrics-download-playlist-source${key === this.currentSource ? " lyrics-download-item-tag-active" : ""}`,
+        text: SOURCE_LABELS2[key]
+      });
+      tag.addEventListener("click", () => {
+        if (key !== this.currentSource)
+          void this.loadRecommendedPlaylists(key);
+      });
+    }
+    if (this.playlists.length === 0) {
+      this.resultEl.createDiv({ cls: "lyrics-download-empty", text: "\u6682\u65E0\u63A8\u8350\u6B4C\u5355\uFF08\u63A5\u53E3\u53EF\u80FD\u53D8\u66F4\uFF09\uFF0C\u53EF\u76F4\u63A5\u5728\u4E0A\u65B9\u641C\u7D22" });
+      return;
+    }
+    for (const p of this.playlists) {
+      const card = this.resultEl.createDiv({ cls: "lyrics-download-playlist-card" });
+      const coverEl = card.createDiv({ cls: "lyrics-download-playlist-cover" });
+      if (p.coverUrl) {
+        const img = coverEl.createEl("img", { cls: "lyrics-download-playlist-cover-img" });
+        img.addEventListener("error", () => {
+          img.remove();
+          renderCoverPlaceholder(coverEl);
+        });
+        img.src = p.coverUrl;
+      } else {
+        renderCoverPlaceholder(coverEl);
+      }
+      const info = card.createDiv({ cls: "lyrics-download-playlist-info" });
+      info.createDiv({ cls: "lyrics-download-playlist-name", text: p.name });
+      const meta = [];
+      if (p.trackCount)
+        meta.push(`${p.trackCount} \u9996`);
+      meta.push(`${this.formatPlayCount(p.playCount)} \u6B21\u64AD\u653E`);
+      if (p.creator)
+        meta.push(p.creator);
+      if (p.source === "kugou")
+        meta.push("\u9650\u524D10\u9996");
+      info.createDiv({ cls: "lyrics-download-playlist-meta", text: meta.join(" \xB7 ") });
+      card.addEventListener("click", () => void this.openPlaylist(p));
+    }
+  }
+  /** 打开某歌单：加载并渲染其歌曲（复用歌曲结果行）；命中缓存直接渲染；force=true 强制重拉刷新；被搜索/切回打断则丢弃 */
+  async openPlaylist(playlist, force = false) {
+    var _a;
+    this.mode = "playlist";
+    this.currentPlaylist = playlist;
+    this.searchSeq++;
+    if (!this.resultEl)
+      return;
+    this.resultEl.empty();
+    this.appendPlaylistHeader(playlist);
+    const cacheKey = `${playlist.source}:${playlist.id}`;
+    const onRefresh = () => void this.openPlaylist(playlist, true);
+    if (!force) {
+      const cached = this.playlistSongsCache[cacheKey];
+      if (cached) {
+        this.renderResults(cached, { playlist, count: cached.length, onRefresh });
+        return;
+      }
+    }
+    this.resultEl.createDiv({ cls: "lyrics-download-empty", text: `\u52A0\u8F7D\u6B4C\u5355\u300C${playlist.name}\u300D\u2026` });
+    const songs = await fetchPlaylistSongs(playlist.source, playlist.id);
+    this.playlistSongsCache[cacheKey] = songs;
+    if (this.mode !== "playlist" || ((_a = this.currentPlaylist) == null ? void 0 : _a.id) !== playlist.id)
+      return;
+    this.renderResults(songs, { playlist, count: songs.length, onRefresh });
+  }
+  /** 歌单视图顶部：返回推荐歌单按钮 + 歌单名 + 实际歌曲数（count 缺省时不显示）+ 刷新按钮（onRefresh 存在时）+ 来源胶囊 */
+  appendPlaylistHeader(playlist, count, onRefresh) {
+    var _a;
+    if (!this.resultEl)
+      return;
+    const head = this.resultEl.createDiv({ cls: "lyrics-download-playlist-head" });
+    const back = head.createDiv({ cls: "lyrics-download-playlist-back" });
+    (0, import_obsidian11.setIcon)(back, "arrow-left");
+    back.setAttribute("title", "\u8FD4\u56DE\u63A8\u8350\u6B4C\u5355");
+    back.addEventListener("click", () => this.goBackToPlaylists());
+    head.createDiv({ cls: "lyrics-download-playlist-head-title", text: playlist.name });
+    if (count !== void 0)
+      head.createSpan({ cls: "lyrics-download-item-tag", text: `\u5171 ${count} \u9996` });
+    if (onRefresh) {
+      const refresh = head.createDiv({ cls: "lyrics-download-playlist-refresh" });
+      (0, import_obsidian11.setIcon)(refresh, "refresh-cw");
+      refresh.setAttribute("title", "\u5237\u65B0\u6B4C\u5355\u6B4C\u66F2");
+      refresh.addEventListener("click", () => onRefresh());
+    }
+    head.createSpan({ cls: "lyrics-download-item-tag", text: (_a = SOURCE_LABELS2[playlist.source]) != null ? _a : playlist.source });
+  }
+  /** 切回推荐歌单首屏（沿用当前来源） */
+  goBackToPlaylists() {
+    this.mode = "playlists";
+    this.currentPlaylist = null;
+    this.renderPlaylists();
+  }
+  /** 播放次数友好格式化：≥1 亿 → x.x亿；≥1 万 → x.x万；否则原样 */
+  formatPlayCount(n) {
+    if (n >= 1e8)
+      return `${(n / 1e8).toFixed(1)}\u4EBF`;
+    if (n >= 1e4)
+      return `${(n / 1e4).toFixed(1)}\u4E07`;
+    return String(n);
+  }
+  /** 结果区显示提示文字（搜索中 / 空输入） */
+  renderSearching(text) {
+    if (!this.resultEl)
+      return;
+    this.resultEl.empty();
+    this.resultEl.createDiv({ cls: "lyrics-download-empty", text });
+  }
+  /** 更新进度条：percent 0-100 为字节进度（显示百分比数字），null 为阶段进行中（不定宽滑动动画） */
+  renderProgress(percent, label) {
+    var _a, _b;
+    if (!this.progressWrap || !this.progressFill)
+      return;
+    this.progressWrap.removeClass("lyrics-download-progress-hidden");
+    if (percent === null) {
+      this.progressFill.addClass("lyrics-download-progress-indeterminate");
+      this.progressFill.style.width = "";
+      (_a = this.progressText) == null ? void 0 : _a.setText(label);
+    } else {
+      this.progressFill.removeClass("lyrics-download-progress-indeterminate");
+      this.progressFill.style.width = `${percent}%`;
+      (_b = this.progressText) == null ? void 0 : _b.setText(`${label} ${percent}%`);
+    }
+  }
+  /** 下载单首：按来源分发（QQ 用设置里粘贴的 Cookie）。成功后不关闭弹窗，按钮标 ✓ 可继续下下一首 */
+  async downloadOne(song, btn) {
+    var _a, _b, _c;
+    if (this.downloading)
+      return;
+    this.downloading = true;
+    btn.setAttribute("disabled", "true");
+    btn.addClass("lyrics-download-item-btn-loading");
+    (_a = this.resultEl) == null ? void 0 : _a.addClass("lyrics-download-downloading");
+    try {
+      const { ok, message } = await downloadSong(
+        this.plugin,
+        song,
+        this.plugin.getSettings().platformCookies,
+        (percent, label) => this.renderProgress(percent, label)
+      );
+      new import_obsidian11.Notice(message, ok ? 4e3 : 7e3);
+      if (ok) {
+        btn.empty();
+        (0, import_obsidian11.setIcon)(btn, "check");
+        btn.addClass("lyrics-download-item-btn-done");
+        btn.removeClass("lyrics-download-item-btn-loading");
+      } else {
+        btn.removeAttribute("disabled");
+        btn.removeClass("lyrics-download-item-btn-loading");
+      }
+    } catch (e) {
+      new import_obsidian11.Notice(`\u4E0B\u8F7D\u51FA\u9519\uFF1A${e instanceof Error ? e.message : String(e)}`, 7e3);
+      btn.removeAttribute("disabled");
+      btn.removeClass("lyrics-download-item-btn-loading");
+    }
+    (_b = this.progressWrap) == null ? void 0 : _b.addClass("lyrics-download-progress-hidden");
+    (_c = this.resultEl) == null ? void 0 : _c.removeClass("lyrics-download-downloading");
+    this.downloading = false;
+  }
+  onClose() {
+    if (this.debounceTimer !== null)
+      window.clearTimeout(this.debounceTimer);
+    this.stopPreview();
+    this.contentEl.empty();
+  }
+};
+
 // src/LyricsView.ts
-var LyricsView = class extends import_obsidian10.ItemView {
+var LyricsView = class extends import_obsidian12.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.lyricsEl = null;
@@ -12985,7 +16782,7 @@ var LyricsView = class extends import_obsidian10.ItemView {
       return;
     this.playPauseBtn.empty();
     const icon = this.playPauseBtn.createSpan({ cls: "lyrics-panel-play-icon" });
-    (0, import_obsidian10.setIcon)(icon, isPlaying ? "pause" : "play");
+    (0, import_obsidian12.setIcon)(icon, isPlaying ? "pause" : "play");
   }
   // --- Status bar ---
   createStatusBar(container) {
@@ -12998,7 +16795,7 @@ var LyricsView = class extends import_obsidian10.ItemView {
     const controls = this.statusBar.createDiv({ cls: "lyrics-statusbar-controls" });
     this.statusBarPlay = controls.createSpan({ cls: "lyrics-statusbar-btn" });
     this.statusBarPlay.setAttribute("title", "\u64AD\u653E/\u6682\u505C");
-    (0, import_obsidian10.setIcon)(this.statusBarPlay, "play");
+    (0, import_obsidian12.setIcon)(this.statusBarPlay, "play");
     this.statusBarPlay.addEventListener("click", () => this.plugin.toggleActivePlayer());
     this.statusBarVolumeIcon = this.statusBar.createSpan({ cls: "lyrics-statusbar-volume-icon" });
     this.renderVolumeIcon();
@@ -13022,7 +16819,7 @@ var LyricsView = class extends import_obsidian10.ItemView {
     });
     this.statusBarLocate = this.statusBar.createSpan({ cls: "lyrics-statusbar-locate-btn" });
     this.statusBarLocate.setAttribute("title", "\u5B9A\u4F4D\u5230\u5F53\u524D\u6B4C\u66F2\uFF08\u6B4C\u5355\u6253\u5F00\u65F6\u6EDA\u52A8\u5B9A\u4F4D\uFF09\u6216\u6B4C\u8BCD\u7B14\u8BB0\u6807\u7B7E\u9875");
-    (0, import_obsidian10.setIcon)(this.statusBarLocate, "locate-fixed");
+    (0, import_obsidian12.setIcon)(this.statusBarLocate, "locate-fixed");
     this.statusBarLocate.addEventListener("click", () => this.locateLyricsNote());
     const info = this.statusBar.createDiv({ cls: "lyrics-statusbar-info" });
     this.statusBarTitle = info.createSpan({ cls: "lyrics-statusbar-song", text: "LyricFlux" });
@@ -13038,7 +16835,7 @@ var LyricsView = class extends import_obsidian10.ItemView {
       return;
     const mode = this.plugin.getPlayMode();
     const icon = mode === "single" ? "repeat-1" : mode === "shuffle" ? "shuffle" : "repeat";
-    (0, import_obsidian10.setIcon)(this.statusBarMode, icon);
+    (0, import_obsidian12.setIcon)(this.statusBarMode, icon);
     const titles = {
       off: "\u64AD\u653E\u6A21\u5F0F\uFF1A\u5173\u95ED",
       single: "\u64AD\u653E\u6A21\u5F0F\uFF1A\u5355\u66F2\u5FAA\u73AF",
@@ -13058,7 +16855,7 @@ var LyricsView = class extends import_obsidian10.ItemView {
       return;
     const vol = this.plugin.getVolume();
     const icon = vol === 0 ? "volume-x" : vol < 50 ? "volume-1" : "volume-2";
-    (0, import_obsidian10.setIcon)(this.statusBarVolumeIcon, icon);
+    (0, import_obsidian12.setIcon)(this.statusBarVolumeIcon, icon);
     this.statusBarVolumeIcon.setAttribute("title", `\u97F3\u91CF ${vol}%`);
   }
   toggleVolumePopup() {
@@ -13124,7 +16921,7 @@ var LyricsView = class extends import_obsidian10.ItemView {
       this.statusBarTitle.setText("LyricFlux");
       if (this.statusBarTime)
         this.statusBarTime.setText("");
-      (0, import_obsidian10.setIcon)(this.statusBarPlay, "play");
+      (0, import_obsidian12.setIcon)(this.statusBarPlay, "play");
       (_a = this.statusBarLocate) == null ? void 0 : _a.addClass("lyrics-statusbar-locate-hidden");
       return;
     }
@@ -13132,7 +16929,7 @@ var LyricsView = class extends import_obsidian10.ItemView {
     const title = state.title || "\u672A\u77E5\u6B4C\u66F2";
     const actor = state.actor || "\u672A\u77E5\u827A\u672F\u5BB6";
     this.statusBarTitle.setText(`${title} - ${actor}`);
-    (0, import_obsidian10.setIcon)(this.statusBarPlay, state.isPlaying ? "pause" : "play");
+    (0, import_obsidian12.setIcon)(this.statusBarPlay, state.isPlaying ? "pause" : "play");
     this.statusBarPlay.setAttribute("title", state.isPlaying ? "\u6682\u505C" : "\u64AD\u653E");
     if (this.statusBarTime) {
       if (state.duration) {
@@ -13346,9 +17143,16 @@ var LyricsView = class extends import_obsidian10.ItemView {
     titleWrap.createSpan({ text: "\u6B4C\u66F2\u5217\u8868" });
     this.songListCountEl = titleWrap.createSpan({ cls: "lyrics-song-popup-count", text: `(${this.plugin.getSongList().length})` });
     const closeBtn = header.createSpan({ cls: "lyrics-song-popup-close" });
-    (0, import_obsidian10.setIcon)(closeBtn, "x");
+    (0, import_obsidian12.setIcon)(closeBtn, "x");
     closeBtn.addEventListener("click", () => this.closeSongListPopup());
     const filterRow = this.songListPopup.createDiv({ cls: "lyrics-song-popup-filters" });
+    const dlBtn = filterRow.createDiv({ cls: "lyrics-song-popup-dl-btn" });
+    (0, import_obsidian12.setIcon)(dlBtn, "download");
+    dlBtn.setAttribute("title", "\u4E0B\u8F7D\u6B4C\u66F2");
+    dlBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      new DownloadModal(this.plugin.app, this.plugin).open();
+    });
     const searchWrap = filterRow.createDiv({ cls: "lyrics-song-popup-search" });
     this.songListSearchEl = searchWrap.createEl("input", {
       cls: "lyrics-song-popup-search-input",
@@ -13419,17 +17223,16 @@ var LyricsView = class extends import_obsidian10.ItemView {
         thumb.appendChild(img);
       } else {
         const thumb = item.createDiv({ cls: "lyrics-songs-item-thumb lyrics-songs-item-thumb-placeholder" });
-        (0, import_obsidian10.setIcon)(thumb, "music");
+        (0, import_obsidian12.setIcon)(thumb, "music");
       }
       if (song.kind === "note" || /\.mp3$/i.test(song.path)) {
         const editBtn = item.createDiv({ cls: "lyrics-songs-edit-btn" });
-        (0, import_obsidian10.setIcon)(editBtn, "pencil");
+        (0, import_obsidian12.setIcon)(editBtn, "pencil");
         editBtn.setAttribute("title", "\u7F16\u8F91\u6807\u7B7E");
         editBtn.addEventListener("click", (e) => {
           e.stopPropagation();
           if (song.kind === "mp3") {
-            const file = this.plugin.app.vault.getAbstractFileByPath(song.path);
-            const src = file instanceof import_obsidian10.TFile ? { type: "vault", file } : null;
+            const src = this.resolveSongSource(song.path);
             if (src)
               new TagEditorModal(this.plugin.app, this.plugin, "", src).open();
           } else {
@@ -13438,14 +17241,13 @@ var LyricsView = class extends import_obsidian10.ItemView {
         });
       } else {
         const viewBtn = item.createDiv({ cls: "lyrics-songs-edit-btn" });
-        (0, import_obsidian10.setIcon)(viewBtn, "eye");
+        (0, import_obsidian12.setIcon)(viewBtn, "eye");
         viewBtn.setAttribute("title", "\u67E5\u770B\u6807\u7B7E");
         viewBtn.addEventListener("click", (e) => {
           e.stopPropagation();
-          const file = this.plugin.app.vault.getAbstractFileByPath(song.path);
-          if (file instanceof import_obsidian10.TFile) {
-            new TagViewerModal(this.plugin.app, { type: "vault", file }).open();
-          }
+          const src = this.resolveSongSource(song.path);
+          if (src)
+            new TagViewerModal(this.plugin.app, src).open();
         });
       }
       const info = item.createDiv({ cls: "lyrics-songs-item-info" });
@@ -13469,6 +17271,14 @@ var LyricsView = class extends import_obsidian10.ItemView {
       URL.revokeObjectURL(url);
     this.songCoverUrls.clear();
     (_a = this.lyricsPanel) == null ? void 0 : _a.removeClass("lyrics-panel-hidden");
+  }
+  /** 构造歌曲的 AudioSource：库外盘符绝对路径 → external，否则 vault 内 TFile；找不到返回 null */
+  resolveSongSource(path) {
+    if (isWindowsAbsolutePath(path)) {
+      return { type: "external", path };
+    }
+    const file = this.plugin.app.vault.getAbstractFileByPath(path);
+    return file instanceof import_obsidian12.TFile ? { type: "vault", file } : null;
   }
   /** 取某歌曲的音频封面 blob URL（缓存于 songCoverUrls，弹窗关闭时统一 revoke） */
   getAudioCoverUrl(song) {
@@ -13508,7 +17318,39 @@ var LyricsView = class extends import_obsidian10.ItemView {
 };
 
 // src/main.ts
-var LyricsPlugin = class extends import_obsidian11.Plugin {
+function resolveSongAudioSource(app, path) {
+  if (isWindowsAbsolutePath(path)) {
+    return { type: "external", path };
+  }
+  const file = app.vault.getAbstractFileByPath(path);
+  return file instanceof import_obsidian13.TFile ? { type: "vault", file } : null;
+}
+async function listExternalAudioFiles(root) {
+  try {
+    const fs = window.require("fs");
+    const out = [];
+    const walk = async (dir) => {
+      let entries = [];
+      try {
+        entries = await fs.promises.readdir(dir, { withFileTypes: true });
+      } catch (e) {
+        return;
+      }
+      for (const e of entries) {
+        const full = dir.replace(/[\\/]+$/, "") + "/" + e.name;
+        if (e.isDirectory())
+          await walk(full);
+        else if (e.isFile() && isAudioFile(e.name))
+          out.push(full);
+      }
+    };
+    await walk(root.replace(/[\\/]+$/, ""));
+    return out;
+  } catch (e) {
+    return [];
+  }
+}
+var LyricsPlugin = class extends import_obsidian13.Plugin {
   constructor() {
     super(...arguments);
     this.state = null;
@@ -13815,7 +17657,7 @@ var LyricsPlugin = class extends import_obsidian11.Plugin {
       return;
     }
     const file = this.app.vault.getAbstractFileByPath(song.path);
-    if (!(file instanceof import_obsidian11.TFile))
+    if (!(file instanceof import_obsidian13.TFile))
       return;
     const sourcePath = fromPath != null ? fromPath : (_a = this.getLyricsState()) == null ? void 0 : _a.filePath;
     let leaf = null;
@@ -13901,10 +17743,9 @@ var LyricsPlugin = class extends import_obsidian11.Plugin {
     const player = this.getActivePlayer();
     if (player && !player.paused())
       player.pause();
-    const file = this.app.vault.getAbstractFileByPath(song.path);
-    if (!(file instanceof import_obsidian11.TFile))
+    const src = resolveSongAudioSource(this.app, song.path);
+    if (!src)
       return;
-    const src = { type: "vault", file };
     const render = new Mp3PlayerRender(this, `mp3://${song.path}`, src);
     render.setMetadata(song.title, song.actor);
     await render.init();
@@ -13921,10 +17762,15 @@ var LyricsPlugin = class extends import_obsidian11.Plugin {
     if (source === "audio") {
       const audioFolder = this.getSettings().audioFolder;
       if (audioFolder) {
-        const audioPrefix = audioFolder.replace(/\/+$/, "") + "/";
-        const allFiles = this.app.vault.getFiles();
-        const mp3Songs = allFiles.filter((f) => f.path.startsWith(audioPrefix) && isAudioFile(f.path)).map((f) => buildMp3Song(f.path));
-        songs.push(...mp3Songs);
+        if (isWindowsAbsolutePath(audioFolder)) {
+          const externalPaths = await listExternalAudioFiles(audioFolder);
+          songs.push(...externalPaths.map((p) => buildMp3Song(p)));
+        } else {
+          const audioPrefix = audioFolder.replace(/\/+$/, "") + "/";
+          const allFiles = this.app.vault.getFiles();
+          const mp3Songs = allFiles.filter((f) => f.path.startsWith(audioPrefix) && isAudioFile(f.path)).map((f) => buildMp3Song(f.path));
+          songs.push(...mp3Songs);
+        }
       }
     } else {
       const folder = this.getSettings().lyricsFolder;
@@ -14010,9 +17856,7 @@ var LyricsPlugin = class extends import_obsidian11.Plugin {
       key = (_a = song.audioPath) != null ? _a : "";
       if (!key || this.audioTagCache.has(key))
         return;
-      const file = this.app.vault.getAbstractFileByPath(key);
-      if (file instanceof import_obsidian11.TFile)
-        src = { type: "vault", file };
+      src = resolveSongAudioSource(this.app, key);
     } else if (key === void 0) {
       src = await resolveAudioSource(this.app, song.path);
       if (!src) {
@@ -14069,6 +17913,20 @@ var LyricsPlugin = class extends import_obsidian11.Plugin {
       }
     }
     void this.scanLyricSongs();
+  }
+  /** 删除音频文件后调用：若删除的正是当前播放的裸 MP3 则卸载渲染器并复位状态；随后重扫歌单 */
+  async handleAudioDeleted(audioPath) {
+    const state = this.getLyricsState();
+    if ((state == null ? void 0 : state.sourceKind) === "mp3" && state.filePath === `mp3://${audioPath}`) {
+      const renderer = this.activeRenderers.get(state.filePath);
+      if (renderer instanceof Mp3PlayerRender) {
+        await renderer.onunload();
+        this.activeRenderers.delete(state.filePath);
+      }
+      this.lastActiveRenderPath = null;
+      this.updateLyricsState(null);
+    }
+    await this.scanLyricSongs();
   }
   getSongList() {
     return this.songList;
