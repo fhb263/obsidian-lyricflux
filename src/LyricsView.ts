@@ -4,8 +4,11 @@ import { WORD_SPLIT_REGEX } from 'renderers/wordSplitter'
 import { LYRICS_VIEW_TYPE, type PlayMode } from 'shared'
 import type LyricsPlugin from 'main'
 import type { LyricsState, LyricSong } from 'main'
+import type { AudioSource } from 'tags'
+import { isWindowsAbsolutePath } from 'songScanner'
 import TagEditorModal from 'TagEditorModal'
 import TagViewerModal from 'TagViewerModal'
+import DownloadModal from 'DownloadModal'
 
 /**
  * 侧边栏歌词视图：歌词面板 + 状态栏播放控制 + 歌单弹窗 + 音量弹窗。
@@ -499,6 +502,16 @@ export default class LyricsView extends ItemView {
 
         // 搜索 + 类型筛选并排一行：搜索占 2/3，类型占 1/3
         const filterRow = this.songListPopup.createDiv({ cls: 'lyrics-song-popup-filters' })
+
+        // 下载按钮（v1.4.1）：搜索框左侧，打开「下载歌曲」弹窗
+        const dlBtn = filterRow.createDiv({ cls: 'lyrics-song-popup-dl-btn' })
+        setIcon(dlBtn, 'download')
+        dlBtn.setAttribute('title', '下载歌曲')
+        dlBtn.addEventListener('click', (e) => {
+            e.stopPropagation()
+            new DownloadModal(this.plugin.app, this.plugin).open()
+        })
+
         const searchWrap = filterRow.createDiv({ cls: 'lyrics-song-popup-search' })
         this.songListSearchEl = searchWrap.createEl('input', {
             cls: 'lyrics-song-popup-search-input',
@@ -594,11 +607,8 @@ export default class LyricsView extends ItemView {
                 editBtn.addEventListener('click', (e) => {
                     e.stopPropagation()
                     if (song.kind === 'mp3') {
-                        // 裸 MP3：直接传音频源（无笔记）
-                        const file = this.plugin.app.vault.getAbstractFileByPath(song.path)
-                        const src = file instanceof TFile
-                            ? { type: 'vault' as const, file }
-                            : null
+                        // 裸 MP3：直接传音频源（无笔记；库外盘符路径 → external）
+                        const src = this.resolveSongSource(song.path)
                         if (src) new TagEditorModal(this.plugin.app, this.plugin, '', src).open()
                     } else {
                         // 不关闭歌单列表：弹窗盖在上面，保存/取消后回到列表仍保持打开
@@ -612,10 +622,8 @@ export default class LyricsView extends ItemView {
                 viewBtn.setAttribute('title', '查看标签')
                 viewBtn.addEventListener('click', (e) => {
                     e.stopPropagation()
-                    const file = this.plugin.app.vault.getAbstractFileByPath(song.path)
-                    if (file instanceof TFile) {
-                        new TagViewerModal(this.plugin.app, { type: 'vault', file }).open()
-                    }
+                    const src = this.resolveSongSource(song.path)
+                    if (src) new TagViewerModal(this.plugin.app, src).open()
                 })
             }
 
@@ -637,6 +645,15 @@ export default class LyricsView extends ItemView {
         for (const url of this.songCoverUrls.values()) URL.revokeObjectURL(url)
         this.songCoverUrls.clear()
         this.lyricsPanel?.removeClass('lyrics-panel-hidden')
+    }
+
+    /** 构造歌曲的 AudioSource：库外盘符绝对路径 → external，否则 vault 内 TFile；找不到返回 null */
+    private resolveSongSource(path: string): AudioSource | null {
+        if (isWindowsAbsolutePath(path)) {
+            return { type: 'external', path }
+        }
+        const file = this.plugin.app.vault.getAbstractFileByPath(path)
+        return file instanceof TFile ? { type: 'vault', file } : null
     }
 
     /** 取某歌曲的音频封面 blob URL（缓存于 songCoverUrls，弹窗关闭时统一 revoke） */

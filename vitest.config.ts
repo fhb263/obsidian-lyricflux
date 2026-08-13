@@ -8,6 +8,9 @@ export default defineConfig({
             obsidian: resolve(__dirname, 'tests/mocks/obsidian.ts'),
             // src 下 baseUrl 裸导入：renderers 路由 / wordSplitter 等
             renderers: resolve(__dirname, 'src/renderers'),
+            // tags.ts 等被测试直接导入的 src 顶层模块（tsconfig baseUrl 裸导入）
+            mp3Duration: resolve(__dirname, 'src/mp3Duration.ts'),
+            tags: resolve(__dirname, 'src/tags.ts'),
         },
     },
     test: {

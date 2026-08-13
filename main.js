@@ -11438,6 +11438,9 @@ LyricsMarkdownRender.LYRICS_FILE_REGEX = /^lyrics (?<links>.*)/i;
 LyricsMarkdownRender.EMBEDDED_LYRICS_REGEX = /^embedded-lyrics\s*$/i;
 LyricsMarkdownRender.INTERNAL_LINK_REGEX = /\[\[(?<link>.*)\]\]/;
 
+// src/Mp3PlayerRender.ts
+var import_obsidian6 = require("obsidian");
+
 // src/renderers/vorbis.ts
 function readUInt32LE(b, offset) {
   return (b[offset] | b[offset + 1] << 8 | b[offset + 2] << 16 | b[offset + 3] << 24) >>> 0;
@@ -11668,6 +11671,62 @@ function extractOggLyrics(bytes) {
   return (_b = (_a = extractOggTags(bytes)) == null ? void 0 : _a.lyrics) != null ? _b : null;
 }
 
+// src/songScanner.ts
+var AUDIO_EXTENSIONS = ["mp3", "flac", "wav", "ogg", "aac", "m4a"];
+function isAudioFile(path) {
+  var _a, _b;
+  const ext = (_b = (_a = path.split(".").pop()) == null ? void 0 : _a.toLowerCase()) != null ? _b : "";
+  return AUDIO_EXTENSIONS.includes(ext);
+}
+function isWindowsAbsolutePath(p) {
+  return p.length >= 3 && /^[A-Za-z]:[\\/]/.test(p);
+}
+function basenameNoExt(path) {
+  var _a;
+  const name = (_a = path.split(/[\\/]/).pop()) != null ? _a : path;
+  return name.replace(/\.[^.]+$/, "");
+}
+function buildMp3Song(path) {
+  return {
+    path,
+    title: basenameNoExt(path),
+    actor: "\u672A\u77E5\u827A\u672F\u5BB6",
+    type: "",
+    banner: "",
+    kind: "mp3",
+    audioPath: path
+  };
+}
+function detectAudioContainer(bytes) {
+  if (!bytes || bytes.length < 4)
+    return "unknown";
+  const b0 = bytes[0], b1 = bytes[1], b2 = bytes[2], b3 = bytes[3];
+  if (b0 === 102 && b1 === 76 && b2 === 97 && b3 === 67)
+    return "flac";
+  if (b0 === 79 && b1 === 103 && b2 === 103 && b3 === 83)
+    return "ogg";
+  if (bytes.length >= 8 && bytes[4] === 102 && bytes[5] === 116 && bytes[6] === 121 && bytes[7] === 112)
+    return "m4a";
+  if (b0 === 73 && b1 === 68 && b2 === 51)
+    return "mp3";
+  if (b0 === 255 && (b1 & 224) === 224)
+    return "mp3";
+  return "unknown";
+}
+function dedupeMp3ByNote(mp3s, noteAudioPaths) {
+  return mp3s.filter((s) => {
+    var _a;
+    return !noteAudioPaths.has((_a = s.audioPath) != null ? _a : "");
+  });
+}
+function resolvePlayingMp3Metadata(state, songList) {
+  if (!state || state.sourceKind !== "mp3" || !state.filePath)
+    return null;
+  const currentPath = state.filePath.replace(/^mp3:\/\//, "");
+  const song = songList.find((s) => s.path === currentPath);
+  return song ? { path: song.path, title: song.title, actor: song.actor } : null;
+}
+
 // src/Mp3PlayerRender.ts
 var Mp3PlayerRender = class {
   constructor(plugin, path, audioSource) {
@@ -11753,18 +11812,46 @@ var Mp3PlayerRender = class {
       return null;
     }
   }
-  /** 生成可播放 URL */
+  /** 生成可播放 URL。检测真实容器：M4A 伪 mp3 用 audio/mp4 并提示，避免「有歌名但进度不动」。 */
   async resolvePlayableUrl() {
-    if (this.audioSource.type === "vault" && this.audioSource.file) {
-      return this.app.vault.getResourcePath(this.audioSource.file);
-    }
     if (this.audioSource.type === "external" && this.audioSource.path) {
       const fs = window.require("fs");
       const buf = await fs.promises.readFile(this.audioSource.path);
-      this.audioBlobUrl = URL.createObjectURL(new Blob([buf], { type: "audio/mpeg" }));
+      const mime = this.pickAudioMime(new Uint8Array(buf));
+      if (mime !== "audio/mpeg") {
+        new import_obsidian6.Notice(`\u8BE5\u6587\u4EF6\u5B9E\u4E3A ${mime === "audio/mp4" ? "M4A/AAC" : mime.split("/")[1].toUpperCase()} \u683C\u5F0F\uFF0C\u5DF2\u6309\u5B9E\u9645\u683C\u5F0F\u64AD\u653E`, 6e3);
+      }
+      this.audioBlobUrl = URL.createObjectURL(new Blob([buf], { type: mime }));
       return this.audioBlobUrl;
     }
+    if (this.audioSource.type === "vault" && this.audioSource.file) {
+      try {
+        const bin = await this.app.vault.readBinary(this.audioSource.file);
+        const mime = this.pickAudioMime(new Uint8Array(bin));
+        if (mime !== "audio/mpeg") {
+          new import_obsidian6.Notice(`\u8BE5\u6587\u4EF6\u5B9E\u4E3A ${mime === "audio/mp4" ? "M4A/AAC" : mime.split("/")[1].toUpperCase()} \u683C\u5F0F\uFF0C\u5DF2\u6309\u5B9E\u9645\u683C\u5F0F\u64AD\u653E`, 6e3);
+          this.audioBlobUrl = URL.createObjectURL(new Blob([bin], { type: mime }));
+          return this.audioBlobUrl;
+        }
+      } catch (e) {
+      }
+      return this.app.vault.getResourcePath(this.audioSource.file);
+    }
     return "";
+  }
+  /** 按文件头魔数选 MIME：标准 MPEG 帧/ID3 → audio/mpeg；M4A → audio/mp4；FLAC/OGG 对应；未知按扩展名兜底 mp3 */
+  pickAudioMime(bytes) {
+    const container = detectAudioContainer(bytes);
+    switch (container) {
+      case "m4a":
+        return "audio/mp4";
+      case "flac":
+        return "audio/flac";
+      case "ogg":
+        return "audio/ogg";
+      default:
+        return "audio/mpeg";
+    }
   }
   /** 设置展示用元数据（来自歌单富化后的标签），供状态栏显示 */
   setMetadata(title, actor) {
@@ -11852,10 +11939,10 @@ var Mp3PlayerRender = class {
 };
 
 // src/Settings.ts
-var import_obsidian8 = require("obsidian");
+var import_obsidian9 = require("obsidian");
 
 // src/downloadManager.ts
-var import_obsidian7 = require("obsidian");
+var import_obsidian8 = require("obsidian");
 
 // src/onlineLyrics.ts
 var UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
@@ -12016,7 +12103,115 @@ async function fetchLyric(songId) {
 // src/tags.ts
 var NodeID3 = __toESM(require_node_id3());
 var jsmediatags = __toESM(require_jsmediatags());
-var import_obsidian6 = require("obsidian");
+var import_obsidian7 = require("obsidian");
+
+// src/mp3Duration.ts
+var MPEG1_SAMPLE_RATES = [44100, 48e3, 32e3];
+var MPEG2_SAMPLE_RATES = [22050, 24e3, 16e3];
+var MPEG25_SAMPLE_RATES = [11025, 12e3, 8e3];
+var MPEG1_BITRATES = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320];
+var MPEG2_BITRATES = [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160];
+function parseFrameHeader(bytes, offset) {
+  if (bytes.length < offset + 4)
+    return null;
+  if (bytes[offset] !== 255)
+    return null;
+  const b1 = bytes[offset + 1];
+  if ((b1 & 224) !== 224)
+    return null;
+  const versionBits = b1 >> 3 & 3;
+  if (versionBits === 1)
+    return null;
+  const version = versionBits === 3 ? 1 : versionBits === 2 ? 2 : 25;
+  const layerBits = b1 >> 1 & 3;
+  if (layerBits === 0)
+    return null;
+  const layer = layerBits === 1 ? 3 : layerBits === 2 ? 2 : 1;
+  const b2 = bytes[offset + 2];
+  const bitrateIndex = b2 >> 4;
+  if (bitrateIndex === 0 || bitrateIndex === 15)
+    return null;
+  const sampleRateIndex = b2 >> 2 & 3;
+  if (sampleRateIndex === 3)
+    return null;
+  const padding = b2 >> 1 & 1;
+  const sampleRates = version === 1 ? MPEG1_SAMPLE_RATES : version === 2 ? MPEG2_SAMPLE_RATES : MPEG25_SAMPLE_RATES;
+  const bitrateTable = version === 1 ? MPEG1_BITRATES : MPEG2_BITRATES;
+  const sampleRate = sampleRates[sampleRateIndex];
+  const bitrateKbps = bitrateTable[bitrateIndex];
+  const samplesPerFrame = layer === 1 ? 384 : layer === 2 ? 1152 : version === 1 ? 1152 : 576;
+  const frameLenBytes = layer === 1 ? (Math.floor(12 * bitrateKbps * 1e3 / sampleRate) + padding) * 4 : Math.floor(144 * bitrateKbps * 1e3 / sampleRate) + padding;
+  return { version, layer, bitrateKbps, sampleRate, samplesPerFrame, frameLenBytes };
+}
+function id3v2Size(bytes) {
+  if (bytes.length < 10 || bytes[0] !== 73 || bytes[1] !== 68 || bytes[2] !== 51)
+    return 0;
+  const sz = (bytes[6] & 127) << 21 | (bytes[7] & 127) << 14 | (bytes[8] & 127) << 7 | bytes[9] & 127;
+  return 10 + sz;
+}
+function readUint32BE(bytes, offset) {
+  return (bytes[offset] << 24 | bytes[offset + 1] << 16 | bytes[offset + 2] << 8 | bytes[offset + 3]) >>> 0;
+}
+function estimateMp3Duration(bytes) {
+  const start = id3v2Size(bytes);
+  let headerOffset = -1;
+  let frame = null;
+  for (let i = start; i + 4 <= bytes.length; i++) {
+    const f = parseFrameHeader(bytes, i);
+    if (f) {
+      headerOffset = i;
+      frame = f;
+      break;
+    }
+  }
+  if (!frame || headerOffset < 0)
+    return null;
+  for (let i = headerOffset + 4; i + 12 <= bytes.length && i <= headerOffset + 36; i++) {
+    const isXing = bytes[i] === 88 && bytes[i + 1] === 105 && bytes[i + 2] === 110 && bytes[i + 3] === 103;
+    const isInfo = bytes[i] === 73 && bytes[i + 1] === 110 && bytes[i + 2] === 102 && bytes[i + 3] === 111;
+    if (isXing || isInfo) {
+      const flags = readUint32BE(bytes, i + 4);
+      if (flags & 1) {
+        const frames = readUint32BE(bytes, i + 8);
+        if (frames > 0)
+          return frames * frame.samplesPerFrame / frame.sampleRate;
+      }
+      break;
+    }
+  }
+  let totalSamples = 0;
+  let totalFrames = 0;
+  let pos = headerOffset;
+  let guard = 0;
+  const maxFrames = Math.max(1, Math.floor(bytes.length / 24));
+  while (pos + 4 <= bytes.length && totalFrames < maxFrames && guard++ < 5e6) {
+    const f = parseFrameHeader(bytes, pos);
+    if (!f || f.frameLenBytes < 4)
+      break;
+    totalSamples += f.samplesPerFrame;
+    totalFrames++;
+    pos += f.frameLenBytes;
+  }
+  if (totalFrames > 0 && frame.sampleRate > 0) {
+    const sec = totalSamples / frame.sampleRate;
+    if (sec > 0)
+      return sec;
+  }
+  return null;
+}
+function formatDurationColon(seconds) {
+  if (seconds === void 0 || !Number.isFinite(seconds) || seconds < 0)
+    return "";
+  const total = Math.round(seconds);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor(total % 3600 / 60);
+  const s = total % 60;
+  const mm = String(m).padStart(2, "0");
+  const ss = String(s).padStart(2, "0");
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+// src/tags.ts
 function isWinAbsolute(p) {
   return p.length >= 3 && p.charCodeAt(1) === 58 && (p.charCodeAt(2) === 92 || p.charCodeAt(2) === 47);
 }
@@ -12026,7 +12221,7 @@ function isMp3Path(p) {
 async function resolveAudioSource(app, notePath) {
   var _a, _b, _c;
   const note = app.vault.getAbstractFileByPath(notePath);
-  if (!(note instanceof import_obsidian6.TFile))
+  if (!(note instanceof import_obsidian7.TFile))
     return null;
   let content = "";
   try {
@@ -12046,14 +12241,14 @@ async function resolveAudioSource(app, notePath) {
     if (!isMp3Path(name))
       return null;
     const file = app.metadataCache.getFirstLinkpathDest(name, notePath);
-    return file instanceof import_obsidian6.TFile ? { type: "vault", file } : null;
+    return file instanceof import_obsidian7.TFile ? { type: "vault", file } : null;
   }
   if (isWinAbsolute(raw)) {
     return isMp3Path(raw) ? { type: "external", path: raw } : null;
   }
   if (isMp3Path(raw)) {
     const file = app.vault.getAbstractFileByPath(raw);
-    return file instanceof import_obsidian6.TFile ? { type: "vault", file } : null;
+    return file instanceof import_obsidian7.TFile ? { type: "vault", file } : null;
   }
   return null;
 }
@@ -12117,9 +12312,8 @@ function parseTags(bytes) {
     return null;
   }
 }
-async function readMp3Tags(app, source) {
-  const buf = await readFileBuffer(app, source);
-  return buf ? parseTags(buf) : null;
+async function readAudioFileBytes(app, source) {
+  return readFileBuffer(app, source);
 }
 async function getAudioFileSize(app, source) {
   try {
@@ -12196,6 +12390,7 @@ function embedTagsIntoBytes(bytes, tags) {
   }
 }
 async function writeMp3Tags(app, source, tags) {
+  var _a;
   const buf = await readFileBuffer(app, source);
   if (!buf || buf.byteLength === 0)
     return false;
@@ -12212,7 +12407,8 @@ async function writeMp3Tags(app, source, tags) {
     const verify = await readFileBuffer(app, source);
     const lengthOk = !!verify && verify.byteLength === updated.byteLength && verify.byteLength > 512;
     const readable = verify ? parseTags(verify) !== null : false;
-    if (!lengthOk || !readable) {
+    const audioOk = verify ? ((_a = estimateMp3Duration(verify)) != null ? _a : 0) > 0 : false;
+    if (!lengthOk || !readable || !audioOk) {
       await writeFileBuffer(app, source, original);
       return false;
     }
@@ -12386,65 +12582,86 @@ function parseMyMemoryResponse(raw) {
     return null;
   }
 }
-var YD_LANGS = {
-  "zh-CN": "zh-CHS",
-  "zh-TW": "zh-CHT",
-  en: "en",
-  ja: "ja",
-  ko: "ko"
-};
-var BD_LANGS = {
-  "zh-CN": "zh",
-  en: "en",
-  ja: "jp",
-  ko: "kor"
-};
-function buildBaiduTranslateRequest(text, target = "zh-CN") {
-  var _a;
-  const to = (_a = BD_LANGS[target]) != null ? _a : target;
-  const body = `kw=${encodeURIComponent(text)}`;
-  return { url: "https://fanyi.baidu.com/sug", body };
+var DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions";
+var DEFAULT_DEEPSEEK_PROMPT = "\u4F60\u662F\u4E13\u4E1A\u7684\u6B4C\u8BCD\u7FFB\u8BD1\u52A9\u624B\u3002\u4E0B\u9762\u662F\u7528\u6237\u63D0\u4F9B\u7684\u6B4C\u8BCD\uFF0C\u6BCF\u884C\u524D\u9762\u6709\u6570\u5B57\u7F16\u53F7\u3002\u8BF7\u628A\u6BCF\u4E00\u884C\u7FFB\u8BD1\u4E3A\u4E2D\u6587\uFF0C\u6BCF\u884C\u4EC5\u8F93\u51FA\u8BE5\u884C\u7684\u8BD1\u6587\uFF0C\u4E00\u884C\u5BF9\u5E94\u4E00\u884C\uFF0C\u7528\u6362\u884C\u5206\u9694\u3002\u5982\u679C\u67D0\u884C\u539F\u6587\u5DF2\u7ECF\u5305\u542B\u8BD1\u6587\uFF08\u542B\u7AD6\u7EBF\u5206\u9694\uFF09\uFF0C\u8BF7\u53EA\u7FFB\u8BD1\u5176\u4E2D\u975E\u4E2D\u6587\u7684\u539F\u6587\u90E8\u5206\u3002\u4E0D\u8981\u8F93\u51FA\u7F16\u53F7\u3001\u4E0D\u8981\u91CD\u590D\u539F\u6587\u3001\u4E0D\u8981\u52A0\u4EFB\u4F55\u5206\u9694\u7B26\u6216\u683C\u5F0F\u6807\u8BB0\uFF0C\u53EA\u8F93\u51FA\u7FFB\u8BD1\u7ED3\u679C\uFF0C\u4E0D\u8981\u4EFB\u4F55\u89E3\u91CA\u3002";
+function buildDeepseekRequest(text, apiKey, prompt, target = "zh-CN") {
+  const targetName = target === "zh-CN" ? "\u4E2D\u6587" : target === "en" ? "\u82F1\u6587" : target === "ja" ? "\u65E5\u8BED" : target === "ko" ? "\u97E9\u8BED" : target;
+  const sys = "You are a professional lyrics translator.";
+  const userMsg = prompt && prompt.trim() ? `${prompt.trim()}
+
+\u6B4C\u8BCD\uFF1A
+${text}` : `\u628A\u4E0B\u9762\u6B4C\u8BCD\u9010\u884C\u7FFB\u8BD1\u6210${targetName}\uFF0C\u6BCF\u884C\u6309\u300C\u539F\u6587 | \u8BD1\u6587\u300D\u8F93\u51FA\uFF1A
+${text}`;
+  const body = JSON.stringify({
+    // v1.4.2 默认使用 deepseek-v4-flash（设置页「翻译 → DeepSeek」有注释说明）
+    model: "deepseek-v4-flash",
+    messages: [
+      { role: "system", content: sys },
+      { role: "user", content: userMsg }
+    ],
+    temperature: 0.3,
+    stream: false
+  });
+  return {
+    url: DEEPSEEK_API_URL,
+    body,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey.trim()}`
+    }
+  };
 }
-function parseBaiduTranslateResponse(raw) {
+function parseDeepseekResponse(raw) {
   var _a, _b, _c;
   try {
     const data = JSON.parse(raw);
-    if (Number((_a = data == null ? void 0 : data.errno) != null ? _a : -1) !== 0)
+    const content = (_c = (_b = (_a = data == null ? void 0 : data.choices) == null ? void 0 : _a[0]) == null ? void 0 : _b.message) == null ? void 0 : _c.content;
+    if (typeof content !== "string" || !content.trim())
       return null;
-    const first = (_b = data == null ? void 0 : data.data) == null ? void 0 : _b[0];
-    const v = first == null ? void 0 : first.v;
-    if (typeof v !== "string" || !v.trim())
-      return null;
-    const parts = v.split(";").map((p) => p.trim()).filter(Boolean);
-    return (_c = parts[0]) != null ? _c : null;
+    return content.trim().replace(/^```[a-zA-Z]*\n?/, "").replace(/\n?```$/, "");
   } catch (e) {
     return null;
   }
 }
-function buildYoudaoTranslateUrl(text, target = "zh-CN") {
-  var _a;
-  const to = (_a = YD_LANGS[target]) != null ? _a : target;
-  const params = { doctype: "json", type: "AUTO", to, i: text };
-  const qs = Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
-  return `https://fanyi.youdao.com/translate?${qs}`;
+var DEEPSEEK_REFUSAL_MARKS = [
+  "\u8BF7\u63D0\u4F9B",
+  "\u8BF7\u53D1\u9001",
+  "\u8BF7\u8865\u5145",
+  "\u8BF7\u628A\u9700\u8981",
+  "\u8BF7\u60A8\u63D0\u4F9B",
+  "\u60A8\u6CA1\u6709\u63D0\u4F9B",
+  "\u60A8\u63D0\u4F9B\u7684",
+  "\u9700\u8981\u7FFB\u8BD1\u7684\u6B4C\u8BCD",
+  "\u6B4C\u8BCD\u5185\u5BB9",
+  "\u5185\u5BB9\u4E0D\u5B8C\u6574",
+  "\u5E76\u4E0D\u5B8C\u6574",
+  "\u770B\u8D77\u6765\u4E0D\u662F",
+  "\u5982\u679C\u60A8\u80FD\u63D0\u4F9B",
+  "\u82E5\u60A8\u9700\u8981"
+];
+function isDeepseekRefusalLine(line) {
+  return DEEPSEEK_REFUSAL_MARKS.some((r) => line.includes(r));
 }
-function parseYoudaoTranslateResponse(raw) {
-  var _a;
-  try {
-    const data = JSON.parse(raw);
-    const segs = (_a = data == null ? void 0 : data.translateResult) == null ? void 0 : _a[0];
-    if (!Array.isArray(segs) || segs.length === 0)
-      return null;
-    const parts = [];
-    for (const seg of segs) {
-      const t = seg == null ? void 0 : seg.tgt;
-      if (typeof t === "string" && t)
-        parts.push(t);
+function splitDeepseekLyricsResponse(raw, expected) {
+  const out = [];
+  for (const line of raw.split(/\r?\n/)) {
+    if (out.length >= expected)
+      break;
+    const trimmed = line.trim();
+    if (!trimmed)
+      continue;
+    const noNum = trimmed.replace(/^\(?\d{1,3}\)?[.、:：)\s]+/, "");
+    const idx = Math.max(noNum.lastIndexOf("|"), noNum.lastIndexOf("\uFF5C"));
+    let trans = (idx >= 0 ? noNum.slice(idx + 1) : noNum).trim();
+    if (!trans || isDeepseekRefusalLine(trans)) {
+      out.push(null);
+      continue;
     }
-    return parts.length > 0 ? parts.join("") : null;
-  } catch (e) {
-    return null;
+    out.push(trans);
   }
+  while (out.length < expected)
+    out.push(null);
+  return out.slice(0, expected);
 }
 function parseLyricLines(lrc) {
   var _a;
@@ -12494,46 +12711,6 @@ function buildBilingualLrc(lines) {
     out.push(`${l.time}${l.text} | ${trans}`);
   }
   return out.join("\n");
-}
-
-// src/songScanner.ts
-var AUDIO_EXTENSIONS = ["mp3", "flac", "wav", "ogg", "aac", "m4a"];
-function isAudioFile(path) {
-  var _a, _b;
-  const ext = (_b = (_a = path.split(".").pop()) == null ? void 0 : _a.toLowerCase()) != null ? _b : "";
-  return AUDIO_EXTENSIONS.includes(ext);
-}
-function isWindowsAbsolutePath(p) {
-  return p.length >= 3 && /^[A-Za-z]:[\\/]/.test(p);
-}
-function basenameNoExt(path) {
-  var _a;
-  const name = (_a = path.split(/[\\/]/).pop()) != null ? _a : path;
-  return name.replace(/\.[^.]+$/, "");
-}
-function buildMp3Song(path) {
-  return {
-    path,
-    title: basenameNoExt(path),
-    actor: "\u672A\u77E5\u827A\u672F\u5BB6",
-    type: "",
-    banner: "",
-    kind: "mp3",
-    audioPath: path
-  };
-}
-function dedupeMp3ByNote(mp3s, noteAudioPaths) {
-  return mp3s.filter((s) => {
-    var _a;
-    return !noteAudioPaths.has((_a = s.audioPath) != null ? _a : "");
-  });
-}
-function resolvePlayingMp3Metadata(state, songList) {
-  if (!state || state.sourceKind !== "mp3" || !state.filePath)
-    return null;
-  const currentPath = state.filePath.replace(/^mp3:\/\//, "");
-  const song = songList.find((s) => s.path === currentPath);
-  return song ? { path: song.path, title: song.title, actor: song.actor } : null;
 }
 
 // src/tagSize.ts
@@ -13209,26 +13386,31 @@ function parseQqSearchResponse(raw) {
   if (!Array.isArray(list))
     return [];
   return list.map((s) => {
-    var _a2, _b2, _c, _d, _e, _f;
+    var _a2, _b2, _c, _d, _e, _f, _g, _h, _i, _j, _k;
     const size128 = Number((_a2 = s == null ? void 0 : s.size128) != null ? _a2 : 0);
     const hasSize = size128 > 0;
     const size = hasSize ? size128 : void 0;
     const bitrate = hasSize ? 128 : void 0;
     const albummid = (_b2 = s == null ? void 0 : s.albummid) != null ? _b2 : "";
+    const hasMp3 = Number((_c = s == null ? void 0 : s.size128) != null ? _c : 0) > 0 || Number((_d = s == null ? void 0 : s.size320) != null ? _d : 0) > 0;
+    const hasFlac = Number((_e = s == null ? void 0 : s.sizeflac) != null ? _e : 0) > 0;
+    const hasAac = Number((_f = s == null ? void 0 : s.sizeaac) != null ? _f : 0) > 0 || Number((_g = s == null ? void 0 : s.sizem4a) != null ? _g : 0) > 0;
+    const ext = hasMp3 ? "mp3" : hasFlac ? "flac" : hasAac ? "m4a" : void 0;
     return {
-      songmid: (_c = s == null ? void 0 : s.songmid) != null ? _c : "",
-      name: (_d = s == null ? void 0 : s.songname) != null ? _d : "",
+      songmid: (_h = s == null ? void 0 : s.songmid) != null ? _h : "",
+      name: (_i = s == null ? void 0 : s.songname) != null ? _i : "",
       artist: Array.isArray(s == null ? void 0 : s.singer) ? s.singer.map((x) => {
         var _a3;
         return (_a3 = x == null ? void 0 : x.name) != null ? _a3 : "";
       }).filter(Boolean).join("/") : "",
       album: (s == null ? void 0 : s.albumname) || void 0,
       // 下载付费字段 pay.dowload（1=仅 VIP、100=付费单曲/试听），播放付费 payplay 不适用
-      vipOnly: ((_e = s == null ? void 0 : s.pay) == null ? void 0 : _e.dowload) === 1 || ((_f = s == null ? void 0 : s.pay) == null ? void 0 : _f.dowload) === 100,
+      vipOnly: ((_j = s == null ? void 0 : s.pay) == null ? void 0 : _j.dowload) === 1 || ((_k = s == null ? void 0 : s.pay) == null ? void 0 : _k.dowload) === 100,
       duration: Number(s == null ? void 0 : s.interval) > 0 ? Number(s.interval) : void 0,
       size: hasSize ? size : void 0,
       bitrate: hasSize ? bitrate : void 0,
-      coverUrl: albummid ? `https://y.gtimg.cn/music/photo_new/T002R300x300M000${albummid}.jpg` : void 0
+      coverUrl: albummid ? `https://y.gtimg.cn/music/photo_new/T002R300x300M000${albummid}.jpg` : void 0,
+      ext
     };
   }).filter((s) => s.songmid && s.name);
 }
@@ -13407,7 +13589,7 @@ function buildQqDissDetailUrl(dissid) {
   return `https://c.y.qq.com/qzone/fcg-bin/fcg_ucc_getcdinfo_byids_cp.fcg?${qs}`;
 }
 function mapQqSong(s) {
-  var _a, _b, _c, _d, _e, _f;
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k;
   const songmid = (_a = s == null ? void 0 : s.songmid) != null ? _a : "";
   const name = (_b = s == null ? void 0 : s.songname) != null ? _b : "";
   if (!songmid || !name)
@@ -13417,6 +13599,10 @@ function mapQqSong(s) {
   const size = hasSize ? size128 : void 0;
   const bitrate = hasSize ? 128 : void 0;
   const albummid = (_d = s == null ? void 0 : s.albummid) != null ? _d : "";
+  const hasMp3 = Number((_e = s == null ? void 0 : s.size128) != null ? _e : 0) > 0 || Number((_f = s == null ? void 0 : s.size320) != null ? _f : 0) > 0;
+  const hasFlac = Number((_g = s == null ? void 0 : s.sizeflac) != null ? _g : 0) > 0;
+  const hasAac = Number((_h = s == null ? void 0 : s.sizeaac) != null ? _h : 0) > 0 || Number((_i = s == null ? void 0 : s.sizem4a) != null ? _i : 0) > 0;
+  const ext = hasMp3 ? "mp3" : hasFlac ? "flac" : hasAac ? "m4a" : void 0;
   return {
     songmid,
     name,
@@ -13426,11 +13612,12 @@ function mapQqSong(s) {
     }).filter(Boolean).join("/") : "",
     album: (s == null ? void 0 : s.albumname) || void 0,
     // 下载付费字段 pay.dowload（1=仅 VIP、100=付费单曲/试听），播放付费 payplay 不适用
-    vipOnly: ((_e = s == null ? void 0 : s.pay) == null ? void 0 : _e.dowload) === 1 || ((_f = s == null ? void 0 : s.pay) == null ? void 0 : _f.dowload) === 100,
+    vipOnly: ((_j = s == null ? void 0 : s.pay) == null ? void 0 : _j.dowload) === 1 || ((_k = s == null ? void 0 : s.pay) == null ? void 0 : _k.dowload) === 100,
     duration: Number(s == null ? void 0 : s.interval) > 0 ? Number(s.interval) : void 0,
     size: hasSize ? size : void 0,
     bitrate: hasSize ? bitrate : void 0,
-    coverUrl: albummid ? `https://y.gtimg.cn/music/photo_new/T002R300x300M000${albummid}.jpg` : void 0
+    coverUrl: albummid ? `https://y.gtimg.cn/music/photo_new/T002R300x300M000${albummid}.jpg` : void 0,
+    ext
   };
 }
 function parseQqDissDetail(raw) {
@@ -13611,7 +13798,7 @@ function parseKuwoSearchResponse(raw) {
     if (Number((_c = it == null ? void 0 : it.bitSwitch) != null ? _c : 0) === 0)
       continue;
     const minfo = (_d = it == null ? void 0 : it.MINFO) != null ? _d : "";
-    const { size, bitrate } = parseKuwoMInfo(minfo);
+    const { size, bitrate, format } = parseKuwoMInfo(minfo);
     out.push({
       rid,
       name,
@@ -13621,7 +13808,8 @@ function parseKuwoSearchResponse(raw) {
       duration: Number(it == null ? void 0 : it.DURATION) > 0 ? Number(it.DURATION) : void 0,
       size: size > 0 ? size : void 0,
       bitrate: bitrate > 0 ? bitrate : void 0,
-      coverUrl: (it == null ? void 0 : it.hts_MVPIC) || void 0
+      coverUrl: (it == null ? void 0 : it.hts_MVPIC) || void 0,
+      format: format || void 0
     });
   }
   return out;
@@ -13636,7 +13824,7 @@ function tryParseKuwoJson(raw) {
 function parseKuwoMInfo(minfo) {
   var _a, _b;
   if (!minfo)
-    return { size: 0, bitrate: 0 };
+    return { size: 0, bitrate: 0, format: "" };
   const formats = [];
   for (const part of minfo.split(";")) {
     const kv = {};
@@ -13658,18 +13846,18 @@ function parseKuwoMInfo(minfo) {
     });
   }
   if (formats.length === 0)
-    return { size: 0, bitrate: 0 };
+    return { size: 0, bitrate: 0, format: "" };
   for (const f of formats)
     if (f.format === "mp3" && f.bitrate === 128)
-      return { size: f.size, bitrate: f.bitrate };
+      return { size: f.size, bitrate: f.bitrate, format: f.format };
   for (const f of formats)
     if (f.format === "mp3" && f.bitrate === 320)
-      return { size: f.size, bitrate: f.bitrate };
+      return { size: f.size, bitrate: f.bitrate, format: f.format };
   for (const f of formats)
     if (f.format === "flac")
-      return { size: f.size, bitrate: f.bitrate };
+      return { size: f.size, bitrate: f.bitrate, format: f.format };
   const max = formats.reduce((a, b) => b.size > a.size ? b : a, formats[0]);
-  return { size: max.size, bitrate: max.bitrate };
+  return { size: max.size, bitrate: max.bitrate, format: max.format };
 }
 function buildKuwoMobiUrl(rid, br, user) {
   const params = {
@@ -13818,7 +14006,7 @@ function parseKuwoPlaylistDetail(raw) {
     const name = (_b = it == null ? void 0 : it.name) != null ? _b : "";
     if (!rid || !name)
       continue;
-    const { size, bitrate } = parseKuwoMInfo((_c = it == null ? void 0 : it.MINFO) != null ? _c : "");
+    const { size, bitrate, format } = parseKuwoMInfo((_c = it == null ? void 0 : it.MINFO) != null ? _c : "");
     out.push({
       rid,
       name,
@@ -13827,7 +14015,8 @@ function parseKuwoPlaylistDetail(raw) {
       duration: Number(it == null ? void 0 : it.duration) > 0 ? Number(it.duration) : void 0,
       coverUrl: (it == null ? void 0 : it.albumpic) || void 0,
       size: size > 0 ? size : void 0,
-      bitrate: bitrate > 0 ? bitrate : void 0
+      bitrate: bitrate > 0 ? bitrate : void 0,
+      format: format || void 0
     });
   }
   return out;
@@ -13855,7 +14044,7 @@ async function ensureFolder(app, folderPath) {
   } catch (e) {
   }
 }
-async function searchCandidates(keyword, enabled, onPartial, onEmpty) {
+async function searchCandidates(keyword, enabled, onPartial, onEmpty, order) {
   const isOn = (k) => !enabled || enabled[k] !== false;
   const mapNetease = (list) => list.filter((x) => x.id > 0 && x.name).map((s) => ({
     source: "netease",
@@ -13868,7 +14057,8 @@ async function searchCandidates(keyword, enabled, onPartial, onEmpty) {
     duration: s.duration,
     size: s.size,
     bitrate: s.bitrate,
-    vip: !isNeteaseDownloadable(s.fee)
+    vip: !isNeteaseDownloadable(s.fee),
+    ext: "mp3"
   }));
   const mapQq = (text) => parseQqSearchResponse(text).map((s) => ({
     source: "qq",
@@ -13882,7 +14072,8 @@ async function searchCandidates(keyword, enabled, onPartial, onEmpty) {
     size: s.size,
     bitrate: s.bitrate,
     coverUrl: s.coverUrl,
-    vip: s.vipOnly
+    vip: s.vipOnly,
+    ext: s.ext
   }));
   const mapKugou = (text) => parseKugouSearchResponse(text).map((s) => ({
     source: "kugou",
@@ -13894,7 +14085,8 @@ async function searchCandidates(keyword, enabled, onPartial, onEmpty) {
     duration: s.duration,
     size: s.size,
     bitrate: s.bitrate,
-    vip: s.privilege === 10
+    vip: s.privilege === 10,
+    ext: "mp3"
   }));
   const mapKuwo = (text) => parseKuwoSearchResponse(text).map((s) => ({
     source: "kuwo",
@@ -13906,7 +14098,8 @@ async function searchCandidates(keyword, enabled, onPartial, onEmpty) {
     duration: s.duration,
     size: s.size,
     bitrate: s.bitrate,
-    coverUrl: s.coverUrl
+    coverUrl: s.coverUrl,
+    ext: s.format === "flac" ? "flac" : s.format === "aac" ? "m4a" : "mp3"
   }));
   const ok = (songs) => ({ songs, failed: false });
   const fail = () => ({ songs: [], failed: true });
@@ -13934,7 +14127,15 @@ async function searchCandidates(keyword, enabled, onPartial, onEmpty) {
       onEmpty(false);
     }
   }
+  const rank = /* @__PURE__ */ new Map();
+  if (order)
+    order.forEach((src, i) => rank.set(src, i));
   return out.sort((a, b) => {
+    var _a, _b;
+    const ra = rank.has(a.source) ? rank.get(a.source) : (_a = order == null ? void 0 : order.length) != null ? _a : 0;
+    const rb = rank.has(b.source) ? rank.get(b.source) : (_b = order == null ? void 0 : order.length) != null ? _b : 0;
+    if (ra !== rb)
+      return ra - rb;
     const sa = songSimilarityScore(keyword, a.name, a.artist);
     const sb = songSimilarityScore(keyword, b.name, b.artist);
     if (sb !== sa)
@@ -14030,7 +14231,8 @@ async function fetchPlaylistSongs(source, playlistId) {
         size: s.size,
         bitrate: s.bitrate,
         needsCookie: true,
-        vip: s.vipOnly
+        vip: s.vipOnly,
+        ext: s.ext
       }));
     }
     case "kugou": {
@@ -14046,7 +14248,8 @@ async function fetchPlaylistSongs(source, playlistId) {
         duration: s.duration,
         size: s.size,
         bitrate: s.bitrate,
-        vip: s.privilege === 10
+        vip: s.privilege === 10,
+        ext: "mp3"
       }));
     }
     case "kuwo": {
@@ -14061,7 +14264,8 @@ async function fetchPlaylistSongs(source, playlistId) {
         coverUrl: s.coverUrl,
         duration: s.duration,
         size: s.size,
-        bitrate: s.bitrate
+        bitrate: s.bitrate,
+        ext: s.format === "flac" ? "flac" : s.format === "aac" ? "m4a" : "mp3"
       }));
     }
     default:
@@ -14098,7 +14302,8 @@ async function fetchNeteasePlaylistSongs(playlistId) {
         duration: s.duration,
         size: s.size,
         bitrate: s.bitrate,
-        vip: !isNeteaseDownloadable(s.fee)
+        vip: !isNeteaseDownloadable(s.fee),
+        ext: "mp3"
       });
     }
   }
@@ -14572,8 +14777,8 @@ function getKeepAliveAgent(isHttps) {
   }
   return keepAliveAgents[key];
 }
-async function translateText(text, target = "zh-CN", provider = "auto", cookie) {
-  var _a, _b, _c, _d;
+async function translateText(text, target = "zh-CN", provider = "auto", apiKey, prompt) {
+  var _a, _b, _c;
   const textTrim = text.trim();
   if (!textTrim)
     return null;
@@ -14581,27 +14786,28 @@ async function translateText(text, target = "zh-CN", provider = "auto", cookie) 
     return (_a = await translateGoogle(textTrim, target)) != null ? _a : await translateMyMemory(textTrim, target);
   if (provider === "mymemory")
     return await translateMyMemory(textTrim, target);
-  if (provider === "baidu")
-    return (_b = await translateBaidu(textTrim, target, cookie)) != null ? _b : await translateMyMemory(textTrim, target);
-  if (provider === "youdao")
-    return (_c = await translateYoudao(textTrim, target, cookie)) != null ? _c : await translateMyMemory(textTrim, target);
-  return (_d = await translateGoogle(textTrim, target)) != null ? _d : await translateMyMemory(textTrim, target);
+  if (provider === "deepseek")
+    return (_b = await translateDeepseek(textTrim, target, apiKey != null ? apiKey : "", prompt)) != null ? _b : await translateMyMemory(textTrim, target);
+  return (_c = await translateGoogle(textTrim, target)) != null ? _c : await translateMyMemory(textTrim, target);
 }
-async function testTranslateConnection(provider, cookie) {
-  const label = provider === "google" ? "Google" : provider === "baidu" ? "\u767E\u5EA6" : provider === "youdao" ? "\u6709\u9053" : "MyMemory";
-  if ((provider === "baidu" || provider === "youdao") && !(cookie && cookie.trim())) {
-    return { ok: false, message: `${label} \u672A\u914D\u7F6E Cookie\uFF1A\u8BF7\u5148\u7C98\u8D34 Cookie \u518D\u6D4B\u8BD5` };
+async function testTranslateConnection(provider, apiKey, prompt) {
+  const started = Date.now();
+  const cost = () => `${Date.now() - started}ms`;
+  const label = provider === "google" ? "Google" : provider === "deepseek" ? "DeepSeek" : "MyMemory";
+  if (provider === "deepseek" && !(apiKey && apiKey.trim())) {
+    return { ok: false, message: `${label} \u672A\u914D\u7F6E API Key\uFF1A\u8BF7\u5148\u586B\u5165 Key \u518D\u6D4B\u8BD5` };
+  }
+  if (provider === "deepseek") {
+    const result2 = await translateDeepseek("\u6D4B\u8BD5", "en", apiKey != null ? apiKey : "", prompt);
+    if (result2)
+      return { ok: true, message: `${label} \u7FFB\u8BD1\u53EF\u7528\uFF08\u793A\u4F8B\uFF1A\u6D4B\u8BD5 \u2192 ${result2}\uFF0C\u8017\u65F6 ${cost()}\uFF09` };
+    return { ok: false, message: `${label} \u8BF7\u6C42\u5931\u8D25\uFF08\u7F51\u7EDC\u6216 Key \u65E0\u6548\u6216\u63A5\u53E3\u53D8\u66F4\uFF0C\u8017\u65F6 ${cost()}\uFF09` };
   }
   const p = provider === "auto" ? "auto" : provider;
-  const result = await translateText("\u6D4B\u8BD5", "en", p, cookie);
+  const result = await translateText("\u6D4B\u8BD5", "en", p, apiKey, prompt);
   if (result)
-    return { ok: true, message: `${label} \u7FFB\u8BD1\u53EF\u7528\uFF08\u793A\u4F8B\uFF1A\u6D4B\u8BD5 \u2192 ${result}\uFF09` };
-  if (provider === "baidu" || provider === "youdao") {
-    const mm = await translateMyMemory("\u6D4B\u8BD5", "en");
-    if (mm)
-      return { ok: false, message: `${label} \u63A5\u53E3\u4E0D\u53EF\u7528\uFF08\u5DF2\u81EA\u52A8\u964D\u7EA7 MyMemory\uFF1A\u6D4B\u8BD5 \u2192 ${mm}\uFF09` };
-  }
-  return { ok: false, message: `${label} \u8BF7\u6C42\u5931\u8D25\uFF08\u7F51\u7EDC\u6216\u63A5\u53E3\u53D8\u66F4\uFF09` };
+    return { ok: true, message: `${label} \u7FFB\u8BD1\u53EF\u7528\uFF08\u793A\u4F8B\uFF1A\u6D4B\u8BD5 \u2192 ${result}\uFF0C\u8017\u65F6 ${cost()}\uFF09` };
+  return { ok: false, message: `${label} \u8BF7\u6C42\u5931\u8D25\uFF08\u7F51\u7EDC\u6216\u63A5\u53E3\u53D8\u66F4\uFF0C\u8017\u65F6 ${cost()}\uFF09` };
 }
 async function translateGoogle(text, target) {
   try {
@@ -14627,19 +14833,14 @@ async function translateMyMemory(text, target) {
   }
   return null;
 }
-async function translateBaidu(text, target, cookie) {
-  if (!cookie || !cookie.trim())
+async function translateDeepseek(text, target, apiKey, prompt) {
+  if (!apiKey || !apiKey.trim())
     return null;
   try {
-    const { url, body } = buildBaiduTranslateRequest(text, target);
-    const res = await httpPost(url, body, {
-      "Content-Type": "application/x-www-form-urlencoded",
-      Referer: "https://fanyi.baidu.com/",
-      Origin: "https://fanyi.baidu.com",
-      ...cookie && cookie.trim() ? { Cookie: cookie.trim() } : {}
-    });
+    const req = buildDeepseekRequest(text, apiKey, prompt != null ? prompt : "", target);
+    const res = await httpPost(req.url, req.body, req.headers);
     if (res) {
-      const parsed = parseBaiduTranslateResponse(new TextDecoder().decode(res.data));
+      const parsed = parseDeepseekResponse(new TextDecoder().decode(res.data));
       if (parsed)
         return parsed;
     }
@@ -14647,24 +14848,7 @@ async function translateBaidu(text, target, cookie) {
   }
   return null;
 }
-async function translateYoudao(text, target, cookie) {
-  if (!cookie || !cookie.trim())
-    return null;
-  try {
-    const res = await httpGetTextChecked(buildYoudaoTranslateUrl(text, target), {
-      Referer: "https://fanyi.youdao.com/",
-      ...cookie && cookie.trim() ? { Cookie: cookie.trim() } : {}
-    });
-    if (!res.failed) {
-      const parsed = parseYoudaoTranslateResponse(res.text);
-      if (parsed)
-        return parsed;
-    }
-  } catch (e) {
-  }
-  return null;
-}
-async function translateLyricText(lrc, target = "zh-CN", onProgress, provider = "auto", isCancelled, cookie) {
+async function translateLyricText(lrc, target = "zh-CN", onProgress, provider = "auto", isCancelled, apiKey, prompt, signal) {
   const lines = parseLyricLines(lrc);
   if (lines.length === 0)
     return null;
@@ -14672,10 +14856,24 @@ async function translateLyricText(lrc, target = "zh-CN", onProgress, provider = 
   if (contentLines.length === 0)
     return null;
   onProgress == null ? void 0 : onProgress(0, contentLines.length);
+  if (provider === "deepseek") {
+    if (!apiKey || !apiKey.trim())
+      return null;
+    const translations = await translateDeepseekLyrics(contentLines, target, apiKey, prompt != null ? prompt : "", signal);
+    const translated2 = contentLines.map((l, i) => {
+      var _a;
+      return {
+        time: l.time,
+        text: l.text,
+        translation: (_a = translations[i]) != null ? _a : void 0
+      };
+    });
+    return translated2.some((t) => t.translation) ? buildBilingualLrc(translated2) : null;
+  }
   const translated = [];
   const CHUNK = 5;
   for (let i = 0; i < contentLines.length; i += CHUNK) {
-    if (isCancelled == null ? void 0 : isCancelled())
+    if ((isCancelled == null ? void 0 : isCancelled()) || (signal == null ? void 0 : signal.aborted))
       break;
     const chunk2 = contentLines.slice(i, i + CHUNK);
     const results = await Promise.all(chunk2.map(async (l) => {
@@ -14683,13 +14881,29 @@ async function translateLyricText(lrc, target = "zh-CN", onProgress, provider = 
       return {
         time: l.time,
         text: l.text,
-        translation: (_a = await translateText(l.text, target, provider, cookie)) != null ? _a : void 0
+        translation: (_a = await translateText(l.text, target, provider, apiKey, prompt)) != null ? _a : void 0
       };
     }));
     translated.push(...results);
     onProgress == null ? void 0 : onProgress(Math.min(i + chunk2.length, contentLines.length), contentLines.length);
   }
   return translated.some((t) => t.translation) ? buildBilingualLrc(translated) : null;
+}
+async function translateDeepseekLyrics(contentLines, target, apiKey, prompt, signal) {
+  if (signal == null ? void 0 : signal.aborted)
+    return contentLines.map(() => null);
+  const numbered = contentLines.map((l, i) => `${i + 1}. ${l.text}`).join("\n");
+  const req = buildDeepseekRequest(numbered, apiKey, prompt, target);
+  try {
+    const res = await httpPost(req.url, req.body, req.headers, signal);
+    if (res) {
+      const parsed = parseDeepseekResponse(new TextDecoder().decode(res.data));
+      if (parsed)
+        return splitDeepseekLyricsResponse(parsed, contentLines.length);
+    }
+  } catch (e) {
+  }
+  return contentLines.map(() => null);
 }
 async function fetchSongLyrics(song) {
   var _a, _b;
@@ -14874,18 +15088,18 @@ async function fetchGet(url, onProgress, extraHeaders) {
     return null;
   }
 }
-async function httpPost(url, body, extraHeaders) {
+async function httpPost(url, body, extraHeaders, signal) {
   var _a, _b;
   try {
     const r = window.require;
     if (typeof r === "function" && (((_a = r("https")) == null ? void 0 : _a.request) || ((_b = r("http")) == null ? void 0 : _b.request))) {
-      return await nodePost(url, body, extraHeaders);
+      return await nodePost(url, body, extraHeaders, signal);
     }
   } catch (e) {
   }
-  return fetchPost(url, body, extraHeaders);
+  return fetchPost(url, body, extraHeaders, signal);
 }
-function nodePost(url, body, extraHeaders) {
+function nodePost(url, body, extraHeaders, signal) {
   return new Promise((resolve) => {
     let u;
     try {
@@ -14936,14 +15150,29 @@ function nodePost(url, body, extraHeaders) {
       res.on("end", () => resolve({ status, data: new Uint8Array(Buffer.concat(chunks)), headers }));
     });
     req.setTimeout(6e4, () => req.destroy());
+    if (signal) {
+      if (signal.aborted) {
+        req.destroy();
+        resolve(null);
+        return;
+      }
+      signal.addEventListener("abort", () => req.destroy(), { once: true });
+    }
     req.on("error", () => resolve(null));
     req.end(body);
   });
 }
-async function fetchPost(url, body, extraHeaders) {
+async function fetchPost(url, body, extraHeaders, signal) {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 6e4);
+    if (signal) {
+      if (signal.aborted) {
+        clearTimeout(timer);
+        return null;
+      }
+      signal.addEventListener("abort", () => controller.abort(), { once: true });
+    }
     try {
       const res = await fetch(url, {
         method: "POST",
@@ -14992,7 +15221,7 @@ async function fileExists(plugin, targetPath) {
       return false;
     }
   }
-  return plugin.app.vault.getAbstractFileByPath(targetPath) instanceof import_obsidian7.TFile;
+  return plugin.app.vault.getAbstractFileByPath(targetPath) instanceof import_obsidian8.TFile;
 }
 async function resolveDownloadTargetUnique(plugin, filename, source) {
   var _a;
@@ -15012,20 +15241,20 @@ async function writeAudioToVault(app, targetPath, data) {
   }
   const existing = app.vault.getAbstractFileByPath(targetPath);
   let backup = null;
-  if (existing instanceof import_obsidian7.TFile) {
+  if (existing instanceof import_obsidian8.TFile) {
     try {
       backup = await app.vault.readBinary(existing);
     } catch (e) {
     }
   }
   try {
-    if (existing instanceof import_obsidian7.TFile) {
+    if (existing instanceof import_obsidian8.TFile) {
       await app.vault.modifyBinary(existing, data);
     } else {
       await app.vault.createBinary(targetPath, data);
     }
     const verify = app.vault.getAbstractFileByPath(targetPath);
-    if (verify instanceof import_obsidian7.TFile) {
+    if (verify instanceof import_obsidian8.TFile) {
       const check = await app.vault.readBinary(verify);
       if (check.byteLength === data.byteLength)
         return true;
@@ -15066,7 +15295,7 @@ async function writeAudioExternal(targetPath, data) {
 }
 async function rollback(app, existing, backup) {
   try {
-    if (existing instanceof import_obsidian7.TFile && backup) {
+    if (existing instanceof import_obsidian8.TFile && backup) {
       await app.vault.modifyBinary(existing, backup);
     }
   } catch (e) {
@@ -15088,13 +15317,16 @@ var DEFAULT_SETTINGS = {
   volume: 75,
   platformCookies: {},
   downloadSources: { netease: true, qq: true, kugou: true, kuwo: true },
+  downloadSourceOrder: ["netease", "qq", "kugou", "kuwo"],
   translateProvider: "google",
-  translateBaiduCookie: "",
-  translateYoudaoCookie: ""
+  translateDeepseekApiKey: "",
+  translateDeepseekPrompt: ""
 };
-var LyricsSettings = class extends import_obsidian8.PluginSettingTab {
+var LyricsSettings = class extends import_obsidian9.PluginSettingTab {
   constructor(plugin, settings) {
     super(plugin.app, plugin);
+    /** 拖动排序中源平台 key（v1.4.2）：拖动手柄 dragstart 时记录，drop/dragend 清理 */
+    this.dragSourceKey = null;
     this.plugin = plugin;
     this.settings = settings;
   }
@@ -15105,33 +15337,33 @@ var LyricsSettings = class extends import_obsidian8.PluginSettingTab {
   display() {
     const { containerEl } = this;
     containerEl.empty();
-    new import_obsidian8.Setting(containerEl).setName("\u57FA\u672C\u8BBE\u7F6E").setHeading();
-    new import_obsidian8.Setting(containerEl).setName("\u81EA\u52A8\u6EDA\u52A8").setDesc("\u9ED8\u8BA4\u5173\u95ED\uFF0CLRC\u7B14\u8BB0\u9875\u968F\u64AD\u653E\u8FDB\u5EA6\u6EDA\u52A8").addToggle((toggle) => {
+    new import_obsidian9.Setting(containerEl).setName("\u57FA\u672C\u8BBE\u7F6E").setHeading();
+    new import_obsidian9.Setting(containerEl).setName("\u81EA\u52A8\u6EDA\u52A8").setDesc("\u9ED8\u8BA4\u5173\u95ED\uFF0CLRC\u7B14\u8BB0\u9875\u968F\u64AD\u653E\u8FDB\u5EA6\u6EDA\u52A8").addToggle((toggle) => {
       toggle.setValue(this.settings.autoScroll);
       toggle.onChange((value) => {
         this.updateSettings({ autoScroll: value });
       });
     });
-    new import_obsidian8.Setting(containerEl).setName("\u9010\u53E5\u6A21\u5F0F").setDesc("\u9ED8\u8BA4\u5173\u95ED\uFF0C\u6BCF\u53E5\u7ED3\u675F\u540E\u81EA\u52A8\u6682\u505C\uFF0C\u9002\u5408\u8DDF\u8BFB").addToggle((toggle) => {
+    new import_obsidian9.Setting(containerEl).setName("\u9010\u53E5\u6A21\u5F0F").setDesc("\u9ED8\u8BA4\u5173\u95ED\uFF0C\u6BCF\u53E5\u7ED3\u675F\u540E\u81EA\u52A8\u6682\u505C\uFF0C\u9002\u5408\u8DDF\u8BFB").addToggle((toggle) => {
       toggle.setValue(this.settings.sentenceMode);
       toggle.onChange((value) => {
         this.updateSettings({ sentenceMode: value });
       });
     });
-    new import_obsidian8.Setting(containerEl).setName("\u9010\u5B57\u9AD8\u4EAE").setDesc("\u9ED8\u8BA4\u5173\u95ED\uFF0C\u6BCF\u53E5\u5747\u5206\u9010\u5B57\u9AD8\u4EAE\u3002\u652F\u6301\u7CBE\u786E\u9010\u5B57\u9AD8\u4EAE\uFF1A\u5982<00:12.167>\u6CA7<00:13.000>\u6D77").addToggle((toggle) => {
+    new import_obsidian9.Setting(containerEl).setName("\u9010\u5B57\u9AD8\u4EAE").setDesc("\u9ED8\u8BA4\u5173\u95ED\uFF0C\u6BCF\u53E5\u5747\u5206\u9010\u5B57\u9AD8\u4EAE\u3002\u652F\u6301\u7CBE\u786E\u9010\u5B57\u9AD8\u4EAE\uFF1A\u5982<00:12.167>\u6CA7<00:13.000>\u6D77").addToggle((toggle) => {
       toggle.setValue(this.settings.karaoke);
       toggle.onChange((value) => {
         this.updateSettings({ karaoke: value });
       });
     });
-    new import_obsidian8.Setting(containerEl).setName("\u540E\u53F0\u64AD\u653E").setDesc("\u9ED8\u8BA4\u5173\u95ED\uFF0C\u5F00\u542F\u540E\u6700\u5C0F\u5316\u53EF\u7EE7\u7EED\u64AD\u653E\uFF0C\u4F46\u6CE8\u610F\u5728LRC\u7B14\u8BB0\u8DEF\u5F84\u4E0B\u5207\u6B4C\u65F6\u4F1A\u95EA\u73B0\u5F39\u7A97").addToggle((toggle) => {
+    new import_obsidian9.Setting(containerEl).setName("\u540E\u53F0\u64AD\u653E").setDesc("\u9ED8\u8BA4\u5173\u95ED\uFF0C\u5F00\u542F\u540E\u6700\u5C0F\u5316\u53EF\u7EE7\u7EED\u64AD\u653E\uFF0C\u4F46\u6CE8\u610F\u5728LRC\u7B14\u8BB0\u8DEF\u5F84\u4E0B\u5207\u6B4C\u65F6\u4F1A\u95EA\u73B0\u5F39\u7A97").addToggle((toggle) => {
       toggle.setValue(this.settings.flashSwitch);
       toggle.onChange((value) => {
         this.updateSettings({ flashSwitch: value });
       });
     });
-    new import_obsidian8.Setting(containerEl).setName("\u6B4C\u5355").setHeading();
-    new import_obsidian8.Setting(containerEl).setName("\u6B4C\u5355\u6765\u6E90").setDesc("\u9009\u62E9\u6B4C\u5355\u6570\u636E\u6765\u6E90\uFF1ALRC \u7B14\u8BB0\u8DEF\u5F84 \u6216 \u97F3\u9891\u6587\u4EF6\u8DEF\u5F84").addDropdown((dropdown) => {
+    new import_obsidian9.Setting(containerEl).setName("\u6B4C\u5355").setHeading();
+    new import_obsidian9.Setting(containerEl).setName("\u6B4C\u5355\u6765\u6E90").setDesc("\u9009\u62E9\u6B4C\u5355\u6570\u636E\u6765\u6E90\uFF1ALRC \u7B14\u8BB0\u8DEF\u5F84 \u6216 \u97F3\u9891\u6587\u4EF6\u8DEF\u5F84").addDropdown((dropdown) => {
       dropdown.addOption("notes", "LRC \u7B14\u8BB0\u8DEF\u5F84").addOption("audio", "\u97F3\u9891\u6587\u4EF6\u8DEF\u5F84").setValue(this.settings.songSource).onChange(async (value) => {
         await this.updateSettings({ songSource: value });
         await this.plugin.stopAllPlayback();
@@ -15160,36 +15392,37 @@ var LyricsSettings = class extends import_obsidian8.PluginSettingTab {
         }
       });
     }
-    const previewCacheSetting = new import_obsidian8.Setting(containerEl).setName("\u8BD5\u542C\u7F13\u5B58").setDesc("\u300C\u8BD5\u542C\u300D\u64AD\u653E\u62C9\u53D6\u7684\u97F3\u9891\u5B57\u8282\u7F13\u5B58\uFF08\u4F1A\u8BDD\u5185\uFF0C\u91CD\u542F Obsidian \u81EA\u52A8\u6E05\u7A7A\uFF09");
+    const previewCacheSetting = new import_obsidian9.Setting(containerEl).setName("\u8BD5\u542C\u7F13\u5B58").setDesc("\u300C\u8BD5\u542C\u300D\u64AD\u653E\u62C9\u53D6\u7684\u97F3\u9891\u5B57\u8282\u7F13\u5B58\uFF08\u4F1A\u8BDD\u5185\uFF0C\u91CD\u542F Obsidian \u81EA\u52A8\u6E05\u7A7A\uFF09");
     previewCacheSetting.addButton((btn) => {
       btn.setClass("lyrics-clear-cache-btn");
       btn.setButtonText(`\u6E05\u9664\u7F13\u5B58\uFF08${formatBytes(getPreviewCacheSize())}\uFF09`).onClick(async () => {
         clearPreviewCache();
         btn.setButtonText("\u6E05\u9664\u7F13\u5B58\uFF080 B\uFF09");
-        new import_obsidian8.Notice(`\u5DF2\u6E05\u9664\u8BD5\u542C\u7F13\u5B58\uFF08${getPreviewCacheCount()} \u6761\uFF09`);
+        new import_obsidian9.Notice(`\u5DF2\u6E05\u9664\u8BD5\u542C\u7F13\u5B58\uFF08${getPreviewCacheCount()} \u6761\uFF09`);
       });
     });
-    new import_obsidian8.Setting(containerEl).setName("\u4E0B\u8F7D").setHeading();
-    const sourcePlatforms = [
-      { key: "netease", name: "\u7F51\u6613\u4E91\u97F3\u4E50", site: "music.163.com" },
-      { key: "qq", name: "QQ \u97F3\u4E50", site: "y.qq.com" },
-      { key: "kugou", name: "\u9177\u72D7\u97F3\u4E50", site: "kugou.com" },
-      { key: "kuwo", name: "\u9177\u6211\u97F3\u4E50", site: "kuwo.cn" }
-    ];
-    for (const p of sourcePlatforms) {
-      this.createCookieRow(containerEl, p.key, p.name, p.site);
+    new import_obsidian9.Setting(containerEl).setName("\u4E0B\u8F7D").setHeading();
+    const sourcePlatforms = {
+      netease: { name: "\u7F51\u6613\u4E91\u97F3\u4E50", site: "music.163.com" },
+      qq: { name: "QQ \u97F3\u4E50", site: "y.qq.com" },
+      kugou: { name: "\u9177\u72D7\u97F3\u4E50", site: "kugou.com" },
+      kuwo: { name: "\u9177\u6211\u97F3\u4E50", site: "kuwo.cn" }
+    };
+    for (const key of this.sourceOrder().filter((k) => sourcePlatforms[k])) {
+      const p = sourcePlatforms[key];
+      this.createCookieRow(containerEl, key, p.name, p.site);
     }
-    new import_obsidian8.Setting(containerEl).setName("\u7FFB\u8BD1").setHeading();
-    if (this.settings.translateProvider === "baidu" || this.settings.translateProvider === "youdao") {
+    new import_obsidian9.Setting(containerEl).setName("\u7FFB\u8BD1").setHeading();
+    const legacyProvider = this.settings.translateProvider;
+    if (legacyProvider === "baidu" || legacyProvider === "youdao") {
       this.settings.translateProvider = "google";
       void this.plugin.saveData(this.settings);
     }
     const translateProviderContainer = containerEl.createDiv({ cls: "lyrics-translate-providers" });
     this.createTranslateProviderRow(translateProviderContainer, "mymemory", "MyMemory");
     this.createTranslateProviderRow(translateProviderContainer, "google", "Google");
-    this.createTranslateProviderRow(translateProviderContainer, "baidu", "\u767E\u5EA6\u7FFB\u8BD1", "fanyi.baidu.com", true);
-    this.createTranslateProviderRow(translateProviderContainer, "youdao", "\u6709\u9053\u7FFB\u8BD1", "fanyi.youdao.com", true);
-    new import_obsidian8.Setting(containerEl).setName("\u5173\u4E8E").setHeading();
+    this.createTranslateProviderRow(translateProviderContainer, "deepseek", "DeepSeek");
+    new import_obsidian9.Setting(containerEl).setName("\u5173\u4E8E").setHeading();
     const about = containerEl.createDiv({ cls: "lyrics-about" });
     const aboutText = about.createDiv({ cls: "lyrics-about-text" });
     aboutText.createDiv({ cls: "lyrics-about-title", text: "\u652F\u6301\u4F5C\u8005" });
@@ -15206,7 +15439,7 @@ var LyricsSettings = class extends import_obsidian8.PluginSettingTab {
    * 选择或输入后调用 onChange 更新对应设置，并重扫歌单。
    */
   createFolderPicker(containerEl, opts) {
-    const setting = new import_obsidian8.Setting(containerEl).setName(opts.name).setDesc(opts.desc);
+    const setting = new import_obsidian9.Setting(containerEl).setName(opts.name).setDesc(opts.desc);
     setting.addButton((btn) => {
       btn.setClass("lyrics-reload-btn");
       btn.setIcon("refresh-cw").setTooltip("\u5237\u65B0\u6B4C\u5355\u5217\u8868").onClick(async () => {
@@ -15218,7 +15451,7 @@ var LyricsSettings = class extends import_obsidian8.PluginSettingTab {
           btn.setIcon("refresh-cw");
           btn.setDisabled(false);
         }, 1e3);
-        new import_obsidian8.Notice(`\u6B4C\u5355\u5DF2\u5237\u65B0\uFF0C\u5171 ${this.plugin.getSongList().length} \u9996\u6B4C\u66F2`);
+        new import_obsidian9.Notice(`\u6B4C\u5355\u5DF2\u5237\u65B0\uFF0C\u5171 ${this.plugin.getSongList().length} \u9996\u6B4C\u66F2`);
       });
     });
     const inputEl = setting.controlEl.createDiv({ cls: "lyrics-folder-input-wrap" });
@@ -15235,7 +15468,7 @@ var LyricsSettings = class extends import_obsidian8.PluginSettingTab {
     const getAllFolders = () => {
       const folders = /* @__PURE__ */ new Set();
       for (const file of this.app.vault.getAllLoadedFiles()) {
-        if (file instanceof import_obsidian8.TFolder) {
+        if (file instanceof import_obsidian9.TFolder) {
           folders.add(file.path);
         }
       }
@@ -15317,6 +15550,74 @@ var LyricsSettings = class extends import_obsidian8.PluginSettingTab {
       applyFolder(textInput.value);
     });
   }
+  /** 平台优先级完整列表：`downloadSourceOrder` 补齐所有平台（旧配置缺项补尾） */
+  sourceOrder() {
+    var _a;
+    const order = [...(_a = this.settings.downloadSourceOrder) != null ? _a : []];
+    for (const k of ["netease", "qq", "kugou", "kuwo"]) {
+      if (!order.includes(k))
+        order.push(k);
+    }
+    return order;
+  }
+  /** 拖动排序落点：把 src 平台移到 target 平台之前/之后 → 持久化 → 重排 cookie 行 DOM → 刷新序号 + 清拖放高亮 */
+  dropSourceInOrder(containerEl, src, target, after) {
+    const order = this.sourceOrder();
+    let si = order.indexOf(src);
+    const ti = order.indexOf(target);
+    if (si < 0 || ti < 0 || src === target) {
+      this.clearSourceDropHints(containerEl);
+      return;
+    }
+    order.splice(si, 1);
+    si = order.indexOf(src);
+    const targetIdx = order.indexOf(target);
+    if (targetIdx < 0) {
+      this.clearSourceDropHints(containerEl);
+      return;
+    }
+    order.splice(targetIdx + (after ? 1 : 0), 0, src);
+    this.updateSettings({ downloadSourceOrder: order });
+    this.reorderSourceRows(containerEl);
+  }
+  /** 按平台优先级重排 cookie 行 DOM 顺序（只移动行元素，不重建，保留折叠状态），并刷新各序号 cell */
+  reorderSourceRows(containerEl) {
+    const order = this.sourceOrder();
+    const rows = containerEl.querySelectorAll(".lyrics-cookie-row[data-source]");
+    if (rows.length === 0)
+      return;
+    const sorted = Array.from(rows).sort((a, b) => {
+      var _a, _b;
+      const ia = order.indexOf((_a = a.dataset.source) != null ? _a : "");
+      const ib = order.indexOf((_b = b.dataset.source) != null ? _b : "");
+      return (ia < 0 ? order.length : ia) - (ib < 0 ? order.length : ib);
+    });
+    const parent = rows[0].parentElement;
+    if (!parent)
+      return;
+    const after = rows[rows.length - 1].nextSibling;
+    for (const row of sorted)
+      parent.insertBefore(row, after);
+    this.refreshSourceOrderCells(containerEl);
+  }
+  /** 清空所有 cookie 行的拖放高亮指示线（drop/dragend/落点失败时调用） */
+  clearSourceDropHints(containerEl) {
+    containerEl.querySelectorAll(".lyrics-source-order-drop-before, .lyrics-source-order-drop-after").forEach((el) => {
+      el.removeClass("lyrics-source-order-drop-before");
+      el.removeClass("lyrics-source-order-drop-after");
+    });
+  }
+  /** 刷新所有 cookie 行排序 cell 的序号数字（拖动排序后调用，不重建行） */
+  refreshSourceOrderCells(containerEl) {
+    const order = this.sourceOrder();
+    containerEl.querySelectorAll(".lyrics-cookie-row[data-source]").forEach((row) => {
+      var _a;
+      const idx = order.indexOf((_a = row.dataset.source) != null ? _a : "");
+      const rankEl = row.querySelector(".lyrics-source-order-rank");
+      if (rankEl)
+        rankEl.setText(String(idx < 0 ? "\xB7" : idx + 1));
+    });
+  }
   /**
    * 创建可折叠的 Cookie 输入行：头部**勾选框**（控制搜索结果是否包含该平台，未勾选整行变灰且不参与搜索）
    * + 平台名 + 状态徽标（未配置/已配置 N 字符），点击行展开/收起 textarea。
@@ -15327,9 +15628,60 @@ var LyricsSettings = class extends import_obsidian8.PluginSettingTab {
     const value = (_a = this.settings.platformCookies[key]) != null ? _a : "";
     const enabled = this.settings.downloadSources[key] !== false;
     const row = containerEl.createDiv({ cls: "lyrics-cookie-row" });
+    row.dataset.source = key;
     if (!enabled)
       row.addClass("lyrics-cookie-row-disabled");
     const header = row.createDiv({ cls: "lyrics-cookie-header" });
+    const orderCell = header.createDiv({ cls: "lyrics-source-order-cell" });
+    orderCell.setAttribute("title", "\u62D6\u52A8\u8C03\u6574\u5E73\u53F0\u4F18\u5148\u7EA7\uFF1A\u6392\u5728\u4E0A\u65B9\u641C\u7D22\u7ED3\u679C\u8D8A\u9760\u524D");
+    orderCell.addEventListener("click", (e) => e.stopPropagation());
+    orderCell.addEventListener("mousedown", (e) => e.stopPropagation());
+    const rankEl = orderCell.createSpan({ cls: "lyrics-source-order-rank" });
+    const grip = orderCell.createEl("div", { cls: "lyrics-source-order-grip" });
+    grip.setAttribute("title", "\u62D6\u52A8\u6392\u5E8F");
+    (0, import_obsidian9.setIcon)(grip, "grip-vertical");
+    grip.draggable = true;
+    grip.addEventListener("dragstart", (e) => {
+      var _a2;
+      this.dragSourceKey = key;
+      (_a2 = e.dataTransfer) == null ? void 0 : _a2.setData("text/plain", key);
+      if (e.dataTransfer)
+        e.dataTransfer.effectAllowed = "move";
+      row.addClass("lyrics-source-order-dragging");
+    });
+    grip.addEventListener("dragend", () => {
+      this.dragSourceKey = null;
+      row.removeClass("lyrics-source-order-dragging");
+      this.clearSourceDropHints(containerEl);
+    });
+    row.addEventListener("dragover", (e) => {
+      if (!this.dragSourceKey || this.dragSourceKey === key)
+        return;
+      e.preventDefault();
+      if (e.dataTransfer)
+        e.dataTransfer.dropEffect = "move";
+      const rect = row.getBoundingClientRect();
+      const after = e.clientY > rect.top + rect.height / 2;
+      row.toggleClass("lyrics-source-order-drop-after", after);
+      row.toggleClass("lyrics-source-order-drop-before", !after);
+    });
+    row.addEventListener("dragleave", () => {
+      row.removeClass("lyrics-source-order-drop-before");
+      row.removeClass("lyrics-source-order-drop-after");
+    });
+    row.addEventListener("drop", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const src = this.dragSourceKey;
+      this.dragSourceKey = null;
+      if (!src || src === key) {
+        this.clearSourceDropHints(containerEl);
+        return;
+      }
+      const rect = row.getBoundingClientRect();
+      const after = e.clientY > rect.top + rect.height / 2;
+      this.dropSourceInOrder(containerEl, src, key, after);
+    });
     const checkbox = header.createEl("input", { cls: "lyrics-cookie-checkbox", attr: { type: "checkbox" } });
     checkbox.checked = enabled;
     checkbox.addEventListener("click", (e) => e.stopPropagation());
@@ -15392,77 +15744,78 @@ var LyricsSettings = class extends import_obsidian8.PluginSettingTab {
   /**
    * 创建翻译服务商单选行（v1.4.1，样式对齐「下载」分组 cookie 行）：
    * 行首为 radio 单选勾选（选中即设为当前翻译源，不触发行折叠）；
-   * 百度/有道附带可折叠 Cookie 输入（默认收起，防凭证暴露）+「测试连接」/「清除」按钮；
-   * 自动/Google 无 Cookie 输入，点击整行即选中。选中的行高亮、未选中的整行变灰。
+   * DeepSeek 附带可折叠 API Key + 提示词输入（默认收起，防凭证暴露）+「测试连接」/「清除」按钮；
+   * MyMemory/Google 无凭证输入，点击整行即选中。选中的行高亮、未选中的整行变灰。
    */
-  createTranslateProviderRow(containerEl, key, name, site, disabled = false) {
-    var _a;
-    const cookieKey = key === "baidu" ? "translateBaiduCookie" : key === "youdao" ? "translateYoudaoCookie" : null;
-    const isCurrent = () => !disabled && this.settings.translateProvider === key;
+  createTranslateProviderRow(containerEl, key, name) {
+    var _a, _b;
+    const credKey = key === "deepseek" ? "translateDeepseekApiKey" : null;
+    const promptKey = key === "deepseek" ? "translateDeepseekPrompt" : null;
+    const isCurrent = () => this.settings.translateProvider === key;
     const row = containerEl.createDiv({ cls: "lyrics-cookie-row" });
     row.dataset.provider = key;
-    if (disabled)
-      row.addClass("lyrics-cookie-row-disabled");
     row.toggleClass("lyrics-translate-provider-active", isCurrent());
     row.toggleClass("lyrics-translate-provider-off", !isCurrent());
     const header = row.createDiv({ cls: "lyrics-cookie-header" });
     const radio = header.createEl("input", { cls: "lyrics-cookie-checkbox", attr: { type: "radio", name: "lyrics-translate-provider" } });
     radio.checked = isCurrent();
-    if (disabled)
-      radio.disabled = true;
     radio.addEventListener("click", (e) => e.stopPropagation());
     radio.addEventListener("change", () => {
-      if (disabled || !radio.checked)
+      if (!radio.checked)
         return;
       void this.updateSettings({ translateProvider: key });
       this.refreshTranslateProviderRows(containerEl);
     });
     header.createSpan({ cls: "lyrics-cookie-name", text: name });
-    if (disabled) {
-      header.createSpan({ cls: "lyrics-cookie-status", text: "\u5DF2\u7981\u7528" });
-      return;
-    }
     let statusEl = null;
     let body = null;
-    let textarea = null;
-    if (cookieKey) {
-      const value = (_a = this.settings[cookieKey]) != null ? _a : "";
+    let keyInput = null;
+    let promptInput = null;
+    if (credKey && promptKey) {
+      const value = (_a = this.settings[credKey]) != null ? _a : "";
       statusEl = header.createSpan({
         cls: "lyrics-cookie-status" + (value || isCurrent() ? " lyrics-cookie-status-on" : ""),
         text: value ? `\u5DF2\u914D\u7F6E\uFF08${value.length} \u5B57\u7B26\uFF09${isCurrent() ? " \xB7 \u5F53\u524D\u6E90" : ""}` : isCurrent() ? "\u672A\u914D\u7F6E \xB7 \u5F53\u524D\u6E90" : "\u672A\u914D\u7F6E"
       });
       header.createSpan({ cls: "lyrics-cookie-chevron", text: "\u25B8" });
       body = row.createDiv({ cls: "lyrics-cookie-body" });
-      textarea = body.createEl("textarea", { cls: "lyrics-cookie-input" });
-      textarea.value = value;
-      textarea.placeholder = `\u767B\u5F55 ${site} \u2192 F12 \u63A7\u5236\u53F0\u8F93\u5165 document.cookie \u590D\u5236\u6574\u6BB5`;
-      textarea.addEventListener("input", () => {
-        const v = textarea.value.trim();
-        this.updateSettings({ [cookieKey]: v });
+      keyInput = body.createEl("textarea", { cls: "lyrics-cookie-input" });
+      keyInput.value = value;
+      keyInput.placeholder = "\u7C98\u8D34 DeepSeek API Key\uFF08sk-...\uFF09";
+      keyInput.addEventListener("input", () => {
+        const v = keyInput.value.trim();
+        this.updateSettings({ [credKey]: v });
         const isCur = isCurrent();
         statusEl.setText(v ? `\u5DF2\u914D\u7F6E\uFF08${v.length} \u5B57\u7B26\uFF09${isCur ? " \xB7 \u5F53\u524D\u6E90" : ""}` : isCur ? "\u672A\u914D\u7F6E \xB7 \u5F53\u524D\u6E90" : "\u672A\u914D\u7F6E");
         statusEl.toggleClass("lyrics-cookie-status-on", !!v || isCur);
       });
+      promptInput = body.createEl("textarea", { cls: "lyrics-cookie-input", value: (_b = this.settings[promptKey]) != null ? _b : "" });
+      promptInput.placeholder = DEFAULT_DEEPSEEK_PROMPT;
+      promptInput.addEventListener("input", (ev) => {
+        const el = ev.target;
+        this.updateSettings({ [promptKey]: el.value });
+      });
       body.createDiv({
         cls: "lyrics-cookie-hint",
-        text: `\u53EF\u9009\u3002\u7C98\u8D34 ${name} \u767B\u5F55 Cookie \u540E\u53EF\u7A33\u5B9A\u8C03\u7528\u8BE5\u7FFB\u8BD1\u6E90\u3002\u83B7\u53D6\uFF1A\u767B\u5F55 ${site} \u2192 F12 \u63A7\u5236\u53F0\u8F93\u5165 document.cookie \u2192 \u590D\u5236\u8F93\u51FA\u7C98\u8D34\u5230\u4E0A\u65B9\u3002\u4EC5\u5B58\u672C\u5730 data.json\u3002`
+        text: `\u53EF\u9009\u3002\u586B\u5165 DeepSeek \u5F00\u653E\u5E73\u53F0 API Key \u540E\u5373\u53EF\u7528\u8BE5\u6E90\u7FFB\u8BD1\u6B4C\u8BCD\uFF0C\u8FD4\u56DE\u683C\u5F0F\u4E3A [00:00.00]\u539F\u6587|\u8BD1\u6587\u3002\u9ED8\u8BA4\u8C03\u7528\u6A21\u578B deepseek-v4-flash\u3002\u63D0\u793A\u8BCD\u6846\u7559\u7A7A\u65F6\u4EE5\u7070\u8272\u5C0F\u5B57\u663E\u793A\u9ED8\u8BA4\u63D0\u793A\u8BCD\uFF08\u8F93\u51FA\u300C\u539F\u6587 | \u8BD1\u6587\u300D\uFF09\uFF0C\u8F93\u5165\u5373\u8986\u76D6\u3001\u6E05\u7A7A\u6062\u590D\u9ED8\u8BA4\u3002\u4EC5\u5B58\u672C\u5730 data.json\u3002`
       });
       const actions = body.createDiv({ cls: "lyrics-cookie-body-actions" });
       const testBtn = actions.createEl("button", { text: "\u6D4B\u8BD5\u8FDE\u63A5", cls: "mod-cta" });
       const testResultEl = actions.createSpan({ cls: "lyrics-cookie-test-result" });
       actions.createEl("button", { text: "\u6E05\u9664", cls: "mod-cta" }).addEventListener("click", () => {
-        textarea.value = "";
-        this.updateSettings({ [cookieKey]: "" });
+        keyInput.value = "";
+        this.updateSettings({ [credKey]: "" });
         const isCur = isCurrent();
         statusEl.setText(isCur ? "\u672A\u914D\u7F6E \xB7 \u5F53\u524D\u6E90" : "\u672A\u914D\u7F6E");
         statusEl.toggleClass("lyrics-cookie-status-on", isCur);
         testResultEl.setText("");
       });
       testBtn.addEventListener("click", async () => {
+        var _a2;
         testBtn.disabled = true;
         testBtn.setText("\u6D4B\u8BD5\u4E2D\u2026");
         testResultEl.setText("");
-        const res = await testTranslateConnection(key, textarea.value.trim());
+        const res = await testTranslateConnection(key, keyInput.value.trim(), (_a2 = promptInput == null ? void 0 : promptInput.value) != null ? _a2 : "");
         testBtn.disabled = false;
         testBtn.setText("\u6D4B\u8BD5\u8FDE\u63A5");
         testResultEl.setText(res.ok ? "\u2713 " + res.message : "\u2717 " + res.message);
@@ -15474,7 +15827,7 @@ var LyricsSettings = class extends import_obsidian8.PluginSettingTab {
         body.toggleClass("lyrics-cookie-collapsed", !wasCollapsed);
         row.toggleClass("lyrics-cookie-row-expanded", wasCollapsed);
         if (wasCollapsed)
-          textarea.focus();
+          keyInput.focus();
       });
       body.addClass("lyrics-cookie-collapsed");
     } else {
@@ -15487,12 +15840,10 @@ var LyricsSettings = class extends import_obsidian8.PluginSettingTab {
       });
     }
   }
-  /** 刷新翻译服务商单选行：radio 勾选态 + 选中高亮/未选中变灰 + 当前源状态徽标（禁用行跳过，保持「已禁用」） */
+  /** 刷新翻译服务商单选行：radio 勾选态 + 选中高亮/未选中变灰 + 当前源状态徽标 */
   refreshTranslateProviderRows(containerEl) {
     containerEl.querySelectorAll(".lyrics-cookie-row[data-provider]").forEach((row) => {
       var _a;
-      if (row.hasClass("lyrics-cookie-row-disabled"))
-        return;
       const key = row.dataset.provider;
       const radio = row.querySelector('input[type="radio"][name="lyrics-translate-provider"]');
       if (!radio)
@@ -15503,8 +15854,8 @@ var LyricsSettings = class extends import_obsidian8.PluginSettingTab {
       const statusEl = row.querySelector(".lyrics-cookie-status");
       if (!statusEl)
         return;
-      const cookieKey = key === "baidu" ? "translateBaiduCookie" : key === "youdao" ? "translateYoudaoCookie" : null;
-      const value = cookieKey ? (_a = this.settings[cookieKey]) != null ? _a : "" : "";
+      const credKey = key === "deepseek" ? "translateDeepseekApiKey" : null;
+      const value = credKey ? (_a = this.settings[credKey]) != null ? _a : "" : "";
       statusEl.setText(value ? `\u5DF2\u914D\u7F6E\uFF08${value.length} \u5B57\u7B26\uFF09${checked ? " \xB7 \u5F53\u524D\u6E90" : ""}` : checked ? "\u672A\u914D\u7F6E \xB7 \u5F53\u524D\u6E90" : "\u672A\u914D\u7F6E");
       statusEl.toggleClass("lyrics-cookie-status-on", !!value || checked);
     });
@@ -15515,7 +15866,7 @@ var LyricsSettings = class extends import_obsidian8.PluginSettingTab {
 };
 
 // src/main.ts
-var import_obsidian13 = require("obsidian");
+var import_obsidian14 = require("obsidian");
 
 // src/shared.ts
 var LYRICS_VIEW_TYPE = "lyrics-sidebar";
@@ -15524,17 +15875,17 @@ var SPEED_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 var VOLUME_OPTIONS = [0, 25, 50, 75, 100];
 
 // src/LyricsView.ts
-var import_obsidian12 = require("obsidian");
+var import_obsidian13 = require("obsidian");
 
 // src/TagEditorModal.ts
-var import_obsidian9 = require("obsidian");
+var import_obsidian10 = require("obsidian");
 var SOURCE_LABELS = {
   netease: "\u7F51\u6613\u4E91",
   qq: "QQ",
   kugou: "\u9177\u72D7",
   kuwo: "\u9177\u6211"
 };
-var TagEditorModal = class extends import_obsidian9.Modal {
+var TagEditorModal = class extends import_obsidian10.Modal {
   // 翻译进度文字
   constructor(app, plugin, notePath, initialSource) {
     super(app);
@@ -15546,12 +15897,16 @@ var TagEditorModal = class extends import_obsidian9.Modal {
     this.saving = false;
     this.coverInput = null;
     this.coverPreview = null;
+    this.coverCandidatesEl = null;
+    // 多平台封面候选列表容器（缩略图网格）
     this.newFileName = "";
     // 文件名重命名目标（含扩展名），空 = 不改名
     this.fetching = false;
     // 在线歌词获取中标志（防重复点击）
     this.fileSizeBytes = 0;
     // 当前文件字节数（0 = 读取失败/未知）
+    this.durationSec = 0;
+    // 当前音频时长（秒，0 = 解析失败/未知）
     this.baselineEmbedded = 0;
     // 打开时原标签在 ID3v2 中的估算字节，用于计算保存后的预计增量
     this.sizeDescEl = null;
@@ -15568,6 +15923,12 @@ var TagEditorModal = class extends import_obsidian9.Modal {
     // 翻译取消标志（翻译中点按钮置 true 中断）
     this.translateStartedAt = 0;
     // 翻译开始时间（performance.now），用于估算剩余时间
+    this.translateAbort = null;
+    // 翻译取消控制器：abort 立即中止在途 DeepSeek 请求
+    this.translateProgressTimer = null;
+    // 动画进度条计时器：20 秒内 0→99%，超时卡 99% 等真实结果
+    this.translateProgressFlashTimer = null;
+    // 翻译完成「瞬间 100%」短暂停留后隐藏的定时器
     this.translateProgressWrap = null;
     // 翻译进度条容器
     this.translateProgressFill = null;
@@ -15575,25 +15936,35 @@ var TagEditorModal = class extends import_obsidian9.Modal {
     this.translateProgressText = null;
   }
   async onOpen() {
-    var _a, _b, _c, _d;
+    var _a, _b, _c, _d, _e, _f;
     this.contentEl.empty();
     this.contentEl.addClass("lyrics-tag-editor");
     this.titleEl.setText("\u7F16\u8F91\u6807\u7B7E");
     const loading = this.contentEl.createDiv({ cls: "lyrics-tag-loading", text: "\u6B63\u5728\u8BFB\u53D6\u6807\u7B7E\u2026" });
     this.source = (_a = this.initialSource) != null ? _a : await resolveAudioSource(this.app, this.notePath);
     if (!this.source) {
-      new import_obsidian9.Notice("\u672A\u627E\u5230\u8BE5\u6B4C\u66F2\u7684 MP3 \u6587\u4EF6");
+      new import_obsidian10.Notice("\u672A\u627E\u5230\u8BE5\u6B4C\u66F2\u7684 MP3 \u6587\u4EF6");
       this.close();
       return;
     }
     const isMp3 = this.source.type === "vault" ? /\.mp3$/i.test((_c = (_b = this.source.file) == null ? void 0 : _b.name) != null ? _c : "") : /\.mp3$/i.test((_d = this.source.path) != null ? _d : "");
     if (!isMp3) {
-      new import_obsidian9.Notice("\u4EC5 MP3 \u53EF\u7F16\u8F91\u6807\u7B7E\uFF0C\u8BE5\u683C\u5F0F\u4E3A\u53EA\u8BFB\u5C55\u793A", 4e3);
+      new import_obsidian10.Notice("\u4EC5 MP3 \u53EF\u7F16\u8F91\u6807\u7B7E\uFF0C\u8BE5\u683C\u5F0F\u4E3A\u53EA\u8BFB\u5C55\u793A", 4e3);
       this.close();
       return;
     }
-    const tags = await readMp3Tags(this.app, this.source);
-    this.tags = tags != null ? tags : {};
+    const bytes = await readAudioFileBytes(this.app, this.source);
+    if (bytes) {
+      const container = detectAudioContainer(bytes);
+      if (container !== "mp3" && container !== "unknown") {
+        const label = container === "m4a" ? "M4A/AAC" : container.toUpperCase();
+        new import_obsidian10.Notice(`\u8BE5\u6587\u4EF6\u5B9E\u4E3A ${label} \u683C\u5F0F\uFF08\u6269\u5C55\u540D\u4E3A .mp3\uFF09\uFF0C\u4E3A\u907F\u514D\u635F\u574F\u6587\u4EF6\u5DF2\u7981\u6B62\u7F16\u8F91`, 6e3);
+        this.close();
+        return;
+      }
+    }
+    this.tags = bytes ? (_e = parseTagsForPlugin(bytes)) != null ? _e : {} : {};
+    this.durationSec = bytes ? (_f = estimateMp3Duration(bytes)) != null ? _f : 0 : 0;
     const size = await getAudioFileSize(this.app, this.source);
     this.fileSizeBytes = size != null ? size : 0;
     this.baselineEmbedded = estimateEmbeddedSize(this.tags);
@@ -15604,14 +15975,14 @@ var TagEditorModal = class extends import_obsidian9.Modal {
     var _a;
     const { contentEl } = this;
     contentEl.empty();
-    const nameSetting = new import_obsidian9.Setting(contentEl).setName("\u6587\u4EF6\u540D").setDesc(this.getCurrentAbsolutePath());
+    const nameSetting = new import_obsidian10.Setting(contentEl).setName("\u6587\u4EF6\u540D").setDesc(this.getCurrentAbsolutePath());
     nameSetting.addText((text) => {
       const current = this.getCurrentFileName();
       text.setValue(current).setPlaceholder("\u8F93\u5165\u65B0\u6587\u4EF6\u540D\uFF08\u542B\u6269\u5C55\u540D\uFF09").onChange((v) => {
         this.newFileName = v.trim();
       });
     });
-    const sizeSetting = new import_obsidian9.Setting(contentEl).setName("\u6587\u4EF6\u5927\u5C0F");
+    const sizeSetting = new import_obsidian10.Setting(contentEl).setName("\u6587\u4EF6\u5927\u5C0F");
     this.sizeDescEl = sizeSetting.descEl;
     this.updateSizeEstimate();
     const textFields = [
@@ -15620,7 +15991,7 @@ var TagEditorModal = class extends import_obsidian9.Modal {
       ["album", "\u4E13\u8F91"]
     ];
     for (const [key, label] of textFields) {
-      new import_obsidian9.Setting(contentEl).setName(label).addText((text) => {
+      new import_obsidian10.Setting(contentEl).setName(label).addText((text) => {
         var _a2;
         text.setValue((_a2 = this.tags[key]) != null ? _a2 : "");
         text.onChange((v) => {
@@ -15629,7 +16000,9 @@ var TagEditorModal = class extends import_obsidian9.Modal {
         });
       });
     }
-    const lyricsSetting = new import_obsidian9.Setting(contentEl).setName("\u6B4C\u8BCD").setDesc("\u53EF\u6574\u6BB5\u7C98\u8D34 LRC\uFF08\u542B [mm:ss] \u65F6\u95F4\u6233\uFF09\uFF0C\u4FDD\u5B58\u5199\u56DE USLT \u5E27");
+    const lyricsSetting = new import_obsidian10.Setting(contentEl).setName("\u6B4C\u8BCD").setDesc(
+      this.durationSec > 0 ? formatDurationColon(this.durationSec) : "\u65F6\u957F\u672A\u77E5"
+    );
     const lyricsArea = contentEl.createEl("textarea", { cls: "lyrics-tag-lyrics" });
     lyricsArea.value = (_a = this.tags.lyrics) != null ? _a : "";
     lyricsArea.addEventListener("input", () => {
@@ -15645,7 +16018,7 @@ var TagEditorModal = class extends import_obsidian9.Modal {
     this.translateProgressWrap = translateProgressWrap;
     const candidateBox = contentEl.createDiv({ cls: "lyrics-tag-lyric-candidates lyrics-tag-lyric-candidates-hidden" });
     this.lyricCandidatesEl = candidateBox;
-    const coverSetting = new import_obsidian9.Setting(contentEl).setName("\u5C01\u9762");
+    const coverSetting = new import_obsidian10.Setting(contentEl).setName("\u5C01\u9762");
     this.coverPreview = contentEl.createDiv({ cls: "lyrics-tag-cover-preview" });
     this.renderCoverPreview();
     coverSetting.addButton((btn) => btn.setButtonText("\u9009\u62E9\u56FE\u7247").onClick(() => {
@@ -15662,6 +16035,8 @@ var TagEditorModal = class extends import_obsidian9.Modal {
       cls: "lyrics-tag-cover-input",
       attr: { type: "file", accept: "image/*" }
     });
+    const coverCandidatesBox = contentEl.createDiv({ cls: "lyrics-tag-cover-candidates lyrics-tag-lyric-candidates-hidden" });
+    this.coverCandidatesEl = coverCandidatesBox;
     this.coverInput.addEventListener("change", () => {
       var _a2, _b;
       const f = (_b = (_a2 = this.coverInput) == null ? void 0 : _a2.files) == null ? void 0 : _b[0];
@@ -15686,7 +16061,7 @@ var TagEditorModal = class extends import_obsidian9.Modal {
         return;
       }
       const ic = deleteBtn.createSpan({ cls: "lyrics-tag-delete-icon" });
-      (0, import_obsidian9.setIcon)(ic, "trash");
+      (0, import_obsidian10.setIcon)(ic, "trash");
       deleteBtn.createSpan({ text: "\u5220\u9664\u6587\u4EF6" });
     };
     renderDelete();
@@ -15697,7 +16072,7 @@ var TagEditorModal = class extends import_obsidian9.Modal {
         deleteArmed = true;
         deleteBtn.addClass("lyrics-tag-delete-armed");
         renderDelete();
-        new import_obsidian9.Notice("\u518D\u6B21\u70B9\u51FB\u786E\u8BA4\u5220\u9664\u8BE5\u6587\u4EF6", 4e3);
+        new import_obsidian10.Notice("\u518D\u6B21\u70B9\u51FB\u786E\u8BA4\u5220\u9664\u8BE5\u6587\u4EF6", 4e3);
         if (armTimer !== null)
           window.clearTimeout(armTimer);
         armTimer = window.setTimeout(() => {
@@ -15720,7 +16095,7 @@ var TagEditorModal = class extends import_obsidian9.Modal {
     const title = ((_a = this.tags.title) != null ? _a : "").trim() || this.getCurrentFileName().replace(/\.[^.]+$/, "");
     const artist = ((_b = this.tags.artist) != null ? _b : "").trim();
     if (!title) {
-      new import_obsidian9.Notice("\u65E0\u6807\u9898\uFF0C\u65E0\u6CD5\u641C\u7D22");
+      new import_obsidian10.Notice("\u65E0\u6807\u9898\uFF0C\u65E0\u6CD5\u641C\u7D22");
       return [];
     }
     const query = artist ? `${title} ${artist}` : title;
@@ -15736,12 +16111,12 @@ var TagEditorModal = class extends import_obsidian9.Modal {
     try {
       const candidates = await this.searchLyricCandidates();
       if (candidates.length === 0) {
-        new import_obsidian9.Notice("\u672A\u627E\u5230\u5339\u914D\u7684\u6B4C\u66F2");
+        new import_obsidian10.Notice("\u672A\u627E\u5230\u5339\u914D\u7684\u6B4C\u66F2");
         return;
       }
       this.renderLyricCandidates(candidates, lyricsArea);
     } catch (e) {
-      new import_obsidian9.Notice(`\u83B7\u53D6\u6B4C\u8BCD\u5931\u8D25\uFF1A${e.message || "\u7F51\u7EDC\u9519\u8BEF"}`, 5e3);
+      new import_obsidian10.Notice(`\u83B7\u53D6\u6B4C\u8BCD\u5931\u8D25\uFF1A${e.message || "\u7F51\u7EDC\u9519\u8BEF"}`, 5e3);
     } finally {
       this.fetching = false;
       btn.setDisabled(false);
@@ -15781,15 +16156,15 @@ var TagEditorModal = class extends import_obsidian9.Modal {
     try {
       const lrc = await fetchSongLyrics(song);
       if (!lrc) {
-        new import_obsidian9.Notice(`\u8BE5\u6B4C\u66F2\u65E0\u6B4C\u8BCD\uFF08${(_a = SOURCE_LABELS[song.source]) != null ? _a : song.source}\uFF09`, 4e3);
+        new import_obsidian10.Notice(`\u8BE5\u6B4C\u66F2\u65E0\u6B4C\u8BCD\uFF08${(_a = SOURCE_LABELS[song.source]) != null ? _a : song.source}\uFF09`, 4e3);
         return;
       }
       lyricsArea.value = lrc;
       this.tags.lyrics = lrc;
       this.updateSizeEstimate();
-      new import_obsidian9.Notice(`\u5DF2\u5BFC\u5165\u6B4C\u8BCD\uFF1A${song.name} - ${song.artist}`, 3e3);
+      new import_obsidian10.Notice(`\u5DF2\u5BFC\u5165\u6B4C\u8BCD\uFF1A${song.name} - ${song.artist}`, 3e3);
     } catch (e) {
-      new import_obsidian9.Notice(`\u83B7\u53D6\u6B4C\u8BCD\u5931\u8D25\uFF1A${e.message || "\u7F51\u7EDC\u9519\u8BEF"}`, 5e3);
+      new import_obsidian10.Notice(`\u83B7\u53D6\u6B4C\u8BCD\u5931\u8D25\uFF1A${e.message || "\u7F51\u7EDC\u9519\u8BEF"}`, 5e3);
     } finally {
       this.fetchingLyrics = false;
       row.removeClass("lyrics-tag-lyric-candidate-loading");
@@ -15804,24 +16179,32 @@ var TagEditorModal = class extends import_obsidian9.Modal {
   }
   /** 逐行翻译歌词为 `原文 | 译文` 双语格式（翻译源取设置，失败降级 MyMemory）；翻译中按钮变「取消」可随时中断，结果写回歌词框 */
   async translateLyrics(lyricsArea, btn) {
-    var _a, _b, _c, _d, _e;
+    var _a, _b, _c, _d, _e, _f;
     if (this.translating) {
       this.translateCancelled = true;
+      (_a = this.translateAbort) == null ? void 0 : _a.abort();
       return;
     }
-    const text = ((_b = (_a = this.tags.lyrics) != null ? _a : lyricsArea.value) != null ? _b : "").trim();
+    const text = ((_c = (_b = this.tags.lyrics) != null ? _b : lyricsArea.value) != null ? _c : "").trim();
     if (!text) {
-      new import_obsidian9.Notice("\u8BF7\u5148\u8F93\u5165\u6216\u83B7\u53D6\u6B4C\u8BCD\u518D\u7FFB\u8BD1");
+      new import_obsidian10.Notice("\u8BF7\u5148\u8F93\u5165\u6216\u83B7\u53D6\u6B4C\u8BCD\u518D\u7FFB\u8BD1");
       return;
     }
     this.translating = true;
     this.translateCancelled = false;
     this.translateStartedAt = performance.now();
+    const translateAbortCtrl = new AbortController();
+    this.translateAbort = translateAbortCtrl;
     const settings = this.plugin.getSettings();
-    const provider = (_c = settings.translateProvider) != null ? _c : "auto";
-    const translateCookie = provider === "baidu" ? (_d = settings.translateBaiduCookie) != null ? _d : "" : provider === "youdao" ? (_e = settings.translateYoudaoCookie) != null ? _e : "" : "";
+    const provider = (_d = settings.translateProvider) != null ? _d : "auto";
+    const translateApiKey = provider === "deepseek" ? (_e = settings.translateDeepseekApiKey) != null ? _e : "" : "";
+    const translatePrompt = provider === "deepseek" ? (_f = settings.translateDeepseekPrompt) != null ? _f : "" : "";
     btn.setButtonText("\u53D6\u6D88");
-    this.showTranslateProgress(0, "\u6B63\u5728\u7FFB\u8BD1\u2026", 0, 1);
+    if (provider === "deepseek") {
+      this.startTranslateProgressAnim();
+    } else {
+      this.showTranslateProgress(0, "\u6B63\u5728\u7FFB\u8BD1\u2026", 0, 1);
+    }
     try {
       const bilingual = await translateLyricText(
         text,
@@ -15834,28 +16217,65 @@ var TagEditorModal = class extends import_obsidian9.Modal {
         },
         provider,
         () => this.translateCancelled,
-        translateCookie
+        translateApiKey,
+        translatePrompt,
+        translateAbortCtrl.signal
       );
       if (!bilingual) {
-        new import_obsidian9.Notice(this.translateCancelled ? "\u5DF2\u53D6\u6D88\u7FFB\u8BD1" : "\u7FFB\u8BD1\u5931\u8D25\uFF08\u7F51\u7EDC\u9519\u8BEF\u6216\u6B4C\u8BCD\u4E3A\u7A7A\uFF09", 5e3);
+        new import_obsidian10.Notice(this.translateCancelled ? "\u5DF2\u53D6\u6D88\u7FFB\u8BD1" : "\u7FFB\u8BD1\u5931\u8D25\uFF08\u7F51\u7EDC\u9519\u8BEF\u6216\u6B4C\u8BCD\u4E3A\u7A7A\uFF09", 5e3);
         return;
       }
       lyricsArea.value = bilingual;
       this.tags.lyrics = bilingual;
       this.updateSizeEstimate();
-      new import_obsidian9.Notice(this.translateCancelled ? `\u5DF2\u4E2D\u65AD\uFF0C\u4FDD\u7559\u5DF2\u7FFB\u8BD1 ${this.countTranslated(bilingual)} \u884C` : "\u5DF2\u751F\u6210 \u539F\u6587 | \u8BD1\u6587 \u53CC\u8BED\u6B4C\u8BCD", 3e3);
+      this.stopTranslateProgressAnim();
+      this.showTranslateProgress(100, "\u7FFB\u8BD1\u5B8C\u6210", 0, 1);
+      if (this.translateProgressFlashTimer !== null)
+        clearTimeout(this.translateProgressFlashTimer);
+      this.translateProgressFlashTimer = window.setTimeout(() => {
+        this.translateProgressFlashTimer = null;
+        this.hideTranslateProgress();
+      }, 400);
+      new import_obsidian10.Notice(this.translateCancelled ? `\u5DF2\u4E2D\u65AD\uFF0C\u4FDD\u7559\u5DF2\u7FFB\u8BD1 ${this.countTranslated(bilingual)} \u884C` : "\u5DF2\u751F\u6210 \u539F\u6587 | \u8BD1\u6587 \u53CC\u8BED\u6B4C\u8BCD", 3e3);
     } catch (e) {
-      new import_obsidian9.Notice(`\u7FFB\u8BD1\u5931\u8D25\uFF1A${e.message || "\u7F51\u7EDC\u9519\u8BEF"}`, 5e3);
+      new import_obsidian10.Notice(`\u7FFB\u8BD1\u5931\u8D25\uFF1A${e.message || "\u7F51\u7EDC\u9519\u8BEF"}`, 5e3);
     } finally {
       this.translating = false;
       this.translateCancelled = false;
-      this.hideTranslateProgress();
+      this.translateAbort = null;
+      this.stopTranslateProgressAnim();
+      if (this.translateProgressFlashTimer === null) {
+        this.hideTranslateProgress();
+      }
       btn.setButtonText("\u7FFB\u8BD1\u6B4C\u8BCD");
     }
   }
   /** 统计已翻译行数（含 ` | ` 分隔的） */
   countTranslated(bilingual) {
     return bilingual.split(/\r?\n/).filter((l) => l.includes(" | ")).length;
+  }
+  /**
+   * 启动动画式进度条（v1.4.2）：DeepSeek 单次请求期间无真实中间进度，
+   * 用 20 秒内 0→99% 的模拟动画让用户感知「在跑」；超过 20 秒仍未返回结果则停在 99% 等待真实结果。
+   */
+  startTranslateProgressAnim() {
+    this.stopTranslateProgressAnim();
+    const started = performance.now();
+    const ANIM_MS = 2e4;
+    this.translateProgressTimer = window.setInterval(() => {
+      const elapsed = performance.now() - started;
+      const pct = Math.min(99, Math.round(elapsed / ANIM_MS * 99));
+      this.showTranslateProgress(pct, "\u6B63\u5728\u7FFB\u8BD1\u2026\uFF08AI \u751F\u6210\u4E2D\uFF09", 0, 1);
+      if (pct >= 99)
+        this.stopTranslateProgressAnim();
+    }, 200);
+  }
+  /** 停止动画进度条计时器（翻译完成/失败/取消时调用） */
+  stopTranslateProgressAnim() {
+    if (this.translateProgressTimer !== null) {
+      clearInterval(this.translateProgressTimer);
+      this.translateProgressTimer = null;
+    }
   }
   /** 显示并更新翻译进度条（percent 0-100；label 状态文字；etaMs 预计剩余毫秒，0 或不足则省略） */
   showTranslateProgress(percent, label, etaMs = 0, total = 0) {
@@ -15888,7 +16308,7 @@ var TagEditorModal = class extends import_obsidian9.Modal {
     this.translateProgressWrap.addClass("lyrics-tag-translate-progress-hidden");
     this.translateProgressFill.style.width = "0%";
   }
-  /** 从多平台候选拉取当前歌曲封面（优先网易云），写入标签（保存时写回 APIC 帧） */
+  /** 搜索多平台候选，过滤有封面的，展示封面候选缩略图列表（点击某条导入） */
   async fetchCover(btn) {
     if (this.fetching)
       return;
@@ -15897,26 +16317,83 @@ var TagEditorModal = class extends import_obsidian9.Modal {
     btn.setButtonText("\u83B7\u53D6\u4E2D\u2026");
     try {
       const candidates = await this.searchLyricCandidates();
-      const withCover = candidates.find((c) => c.coverUrl);
-      if (!withCover || !withCover.coverUrl) {
-        new import_obsidian9.Notice("\u8BE5\u6B4C\u66F2\u65E0\u5C01\u9762");
+      const withCover = candidates.filter((c) => c.coverUrl);
+      if (withCover.length === 0) {
+        new import_obsidian10.Notice("\u8BE5\u6B4C\u66F2\u65E0\u5C01\u9762");
         return;
       }
-      const img = await downloadImage(withCover.coverUrl);
+      this.renderCoverCandidates(withCover);
+    } catch (e) {
+      new import_obsidian10.Notice(`\u83B7\u53D6\u5C01\u9762\u5931\u8D25\uFF1A${e.message || "\u7F51\u7EDC\u9519\u8BEF"}`, 5e3);
+    } finally {
+      this.fetching = false;
+      btn.setDisabled(false);
+      btn.setButtonText("\u83B7\u53D6\u5C01\u9762");
+    }
+  }
+  /** 渲染多平台封面候选列表：标题行 + 缩略图网格（来源胶囊 + 歌名/歌手），点击某条导入对应封面；手动点 ✕ 才关闭 */
+  renderCoverCandidates(candidates) {
+    var _a;
+    const box = this.coverCandidatesEl;
+    if (!box)
+      return;
+    box.empty();
+    box.removeClass("lyrics-tag-lyric-candidates-hidden");
+    const titleRow = box.createDiv({ cls: "lyrics-tag-lyric-candidates-title" });
+    titleRow.createSpan({ cls: "lyrics-tag-lyric-candidates-title-text", text: "\u9009\u62E9\u5C01\u9762\u6765\u6E90\uFF08\u70B9\u51FB\u5BFC\u5165\uFF09\uFF1A" });
+    const closeBtn = titleRow.createEl("button", { cls: "lyrics-tag-lyric-candidates-close", text: "\u2715" });
+    closeBtn.setAttribute("title", "\u5173\u95ED");
+    closeBtn.addEventListener("click", () => this.hideCoverCandidates());
+    const grid = box.createDiv({ cls: "lyrics-tag-cover-candidates-grid" });
+    for (const s of candidates) {
+      if (!s.coverUrl)
+        continue;
+      const item = grid.createDiv({ cls: "lyrics-tag-cover-candidate" });
+      item.setAttribute("data-key", `${s.source}:${s.id}`);
+      const img = item.createEl("img", { cls: "lyrics-tag-cover-candidate-img" });
+      img.src = s.coverUrl;
+      img.alt = `${s.name} - ${s.artist || ""}`;
+      img.onerror = () => {
+        img.addClass("lyrics-tag-cover-candidate-img-broken");
+      };
+      item.createSpan({ cls: `lyrics-tag-lyric-source lyrics-tag-lyric-source-${s.source}`, text: (_a = SOURCE_LABELS[s.source]) != null ? _a : s.source });
+      const meta = item.createDiv({ cls: "lyrics-tag-cover-candidate-meta" });
+      meta.setText(`${s.name}${s.artist ? ` - ${s.artist}` : ""}`);
+      item.addEventListener("click", () => void this.importCover(s, item));
+    }
+    if (grid.children.length === 0) {
+      new import_obsidian10.Notice("\u8BE5\u6B4C\u66F2\u65E0\u5C01\u9762");
+      this.hideCoverCandidates();
+    }
+  }
+  /** 拉取并导入所选候选的封面到标签（保存时写回 APIC 帧），成功后收起候选列表 */
+  async importCover(song, item) {
+    if (this.fetching || !song.coverUrl)
+      return;
+    this.fetching = true;
+    item.addClass("lyrics-tag-lyric-candidate-loading");
+    try {
+      const img = await downloadImage(song.coverUrl);
       if (!img) {
-        new import_obsidian9.Notice("\u5C01\u9762\u4E0B\u8F7D\u5931\u8D25");
+        new import_obsidian10.Notice("\u5C01\u9762\u4E0B\u8F7D\u5931\u8D25");
         return;
       }
       this.tags.cover = img;
       this.renderCoverPreview();
       this.updateSizeEstimate();
-      new import_obsidian9.Notice(`\u5DF2\u5BFC\u5165\u5C01\u9762\uFF1A${withCover.name} - ${withCover.artist}`, 3e3);
+      new import_obsidian10.Notice(`\u5DF2\u5BFC\u5165\u5C01\u9762\uFF1A${song.name} - ${song.artist}`, 3e3);
     } catch (e) {
-      new import_obsidian9.Notice(`\u83B7\u53D6\u5C01\u9762\u5931\u8D25\uFF1A${e.message || "\u7F51\u7EDC\u9519\u8BEF"}`, 5e3);
+      new import_obsidian10.Notice(`\u83B7\u53D6\u5C01\u9762\u5931\u8D25\uFF1A${e.message || "\u7F51\u7EDC\u9519\u8BEF"}`, 5e3);
     } finally {
       this.fetching = false;
-      btn.setDisabled(false);
-      btn.setButtonText("\u83B7\u53D6\u5C01\u9762");
+      item.removeClass("lyrics-tag-lyric-candidate-loading");
+    }
+  }
+  /** 收起多平台封面候选列表 */
+  hideCoverCandidates() {
+    if (this.coverCandidatesEl) {
+      this.coverCandidatesEl.empty();
+      this.coverCandidatesEl.addClass("lyrics-tag-lyric-candidates-hidden");
     }
   }
   /** 当前音频文件名（含扩展名） */
@@ -15988,15 +16465,15 @@ var TagEditorModal = class extends import_obsidian9.Modal {
     try {
       const ok = await writeMp3Tags(this.app, this.source, this.tags);
       if (!ok) {
-        new import_obsidian9.Notice("\u4FDD\u5B58\u5931\u8D25\uFF0C\u5DF2\u8FD8\u539F\u539F\u6587\u4EF6", 5e3);
+        new import_obsidian10.Notice("\u4FDD\u5B58\u5931\u8D25\uFF0C\u5DF2\u8FD8\u539F\u539F\u6587\u4EF6", 5e3);
         return;
       }
       const renamed = await this.renameAudioFile();
       if (!renamed) {
-        new import_obsidian9.Notice("\u6807\u7B7E\u5DF2\u4FDD\u5B58\uFF0C\u4F46\u6587\u4EF6\u540D\u91CD\u547D\u540D\u5931\u8D25\uFF08\u6807\u7B7E\u5DF2\u5199\u5165\u539F\u6587\u4EF6\uFF09", 5e3);
+        new import_obsidian10.Notice("\u6807\u7B7E\u5DF2\u4FDD\u5B58\uFF0C\u4F46\u6587\u4EF6\u540D\u91CD\u547D\u540D\u5931\u8D25\uFF08\u6807\u7B7E\u5DF2\u5199\u5165\u539F\u6587\u4EF6\uFF09", 5e3);
         return;
       }
-      new import_obsidian9.Notice("\u4FDD\u5B58\u6210\u529F");
+      new import_obsidian10.Notice("\u4FDD\u5B58\u6210\u529F");
       const refreshKey = this.notePath || (((_a = this.source) == null ? void 0 : _a.type) === "vault" ? (_b = this.source.file) == null ? void 0 : _b.path : (_c = this.source) == null ? void 0 : _c.path) || "";
       if (refreshKey)
         this.plugin.notifyTagsEdited(refreshKey);
@@ -16019,11 +16496,11 @@ var TagEditorModal = class extends import_obsidian9.Modal {
         const fs = window.require("fs");
         await fs.promises.unlink(this.source.path);
       } else {
-        new import_obsidian9.Notice("\u672A\u627E\u5230\u6587\u4EF6\uFF0C\u65E0\u6CD5\u5220\u9664");
+        new import_obsidian10.Notice("\u672A\u627E\u5230\u6587\u4EF6\uFF0C\u65E0\u6CD5\u5220\u9664");
         return;
       }
     } catch (e) {
-      new import_obsidian9.Notice("\u5220\u9664\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u6587\u4EF6\u6743\u9650", 5e3);
+      new import_obsidian10.Notice("\u5220\u9664\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u6587\u4EF6\u6743\u9650", 5e3);
       return;
     } finally {
       this.saving = false;
@@ -16031,7 +16508,7 @@ var TagEditorModal = class extends import_obsidian9.Modal {
     const audioPath = this.source.type === "vault" ? (_a = this.source.file) == null ? void 0 : _a.path : this.source.path;
     if (audioPath)
       await this.plugin.handleAudioDeleted(audioPath);
-    new import_obsidian9.Notice(`\u5DF2\u5220\u9664\uFF1A${name}`, 4e3);
+    new import_obsidian10.Notice(`\u5DF2\u5220\u9664\uFF1A${name}`, 4e3);
     this.close();
   }
   /** 重命名音频文件：vault 内用 Obsidian 重命名（自动更新引用），库外用 fs 重命名 + 同步笔记 source 行 */
@@ -16072,7 +16549,7 @@ var TagEditorModal = class extends import_obsidian9.Modal {
   async updateNoteSourceLine(oldPath, newPath) {
     var _a;
     const file = this.app.vault.getAbstractFileByPath(this.notePath);
-    if (!(file instanceof import_obsidian9.TFile))
+    if (!(file instanceof import_obsidian10.TFile))
       return;
     try {
       const content = await this.app.vault.read(file);
@@ -16096,8 +16573,8 @@ var TagEditorModal = class extends import_obsidian9.Modal {
 };
 
 // src/TagViewerModal.ts
-var import_obsidian10 = require("obsidian");
-var TagViewerModal = class extends import_obsidian10.Modal {
+var import_obsidian11 = require("obsidian");
+var TagViewerModal = class extends import_obsidian11.Modal {
   constructor(app, source) {
     super(app);
     this.source = null;
@@ -16109,7 +16586,7 @@ var TagViewerModal = class extends import_obsidian10.Modal {
     this.titleEl.setText("\u67E5\u770B\u6807\u7B7E");
     this.contentEl.createDiv({ cls: "lyrics-tag-loading", text: "\u6B63\u5728\u8BFB\u53D6\u6807\u7B7E\u2026" });
     if (!this.source) {
-      new import_obsidian10.Notice("\u672A\u627E\u5230\u97F3\u9891\u6587\u4EF6");
+      new import_obsidian11.Notice("\u672A\u627E\u5230\u97F3\u9891\u6587\u4EF6");
       this.close();
       return;
     }
@@ -16124,7 +16601,7 @@ var TagViewerModal = class extends import_obsidian10.Modal {
     } catch (e) {
     }
     if (!bytes) {
-      new import_obsidian10.Notice("\u8BFB\u53D6\u6807\u7B7E\u5931\u8D25", 4e3);
+      new import_obsidian11.Notice("\u8BFB\u53D6\u6807\u7B7E\u5931\u8D25", 4e3);
       this.close();
       return;
     }
@@ -16134,16 +16611,16 @@ var TagViewerModal = class extends import_obsidian10.Modal {
   }
   render(tags) {
     const t = tags != null ? tags : {};
-    new import_obsidian10.Setting(this.contentEl).setName("\u6807\u9898").setDesc(t.title || "\uFF08\u65E0\uFF09");
-    new import_obsidian10.Setting(this.contentEl).setName("\u827A\u672F\u5BB6").setDesc(t.artist || "\uFF08\u65E0\uFF09");
-    new import_obsidian10.Setting(this.contentEl).setName("\u4E13\u8F91").setDesc(t.album || "\uFF08\u65E0\uFF09");
-    new import_obsidian10.Setting(this.contentEl).setName("\u6B4C\u8BCD").setDesc("\u53EA\u8BFB\u5C55\u793A\uFF0C\u5982\u9700\u4FEE\u6539\u8BF7\u7528\u5916\u90E8\u5DE5\u5177\u7F16\u8F91\u6807\u7B7E");
+    new import_obsidian11.Setting(this.contentEl).setName("\u6807\u9898").setDesc(t.title || "\uFF08\u65E0\uFF09");
+    new import_obsidian11.Setting(this.contentEl).setName("\u827A\u672F\u5BB6").setDesc(t.artist || "\uFF08\u65E0\uFF09");
+    new import_obsidian11.Setting(this.contentEl).setName("\u4E13\u8F91").setDesc(t.album || "\uFF08\u65E0\uFF09");
+    new import_obsidian11.Setting(this.contentEl).setName("\u6B4C\u8BCD").setDesc("\u53EA\u8BFB\u5C55\u793A\uFF0C\u5982\u9700\u4FEE\u6539\u8BF7\u7528\u5916\u90E8\u5DE5\u5177\u7F16\u8F91\u6807\u7B7E");
     const lyricsArea = this.contentEl.createEl("textarea", {
       cls: "lyrics-tag-lyrics"
     });
     lyricsArea.value = t.lyrics || "";
     lyricsArea.readOnly = true;
-    new import_obsidian10.Setting(this.contentEl).setName("\u5C01\u9762");
+    new import_obsidian11.Setting(this.contentEl).setName("\u5C01\u9762");
     if (t.cover) {
       const url = URL.createObjectURL(new Blob([t.cover.data], { type: t.cover.mime }));
       const img = this.contentEl.createEl("img", { cls: "lyrics-tag-cover-img" });
@@ -16163,7 +16640,7 @@ var TagViewerModal = class extends import_obsidian10.Modal {
 };
 
 // src/DownloadModal.ts
-var import_obsidian11 = require("obsidian");
+var import_obsidian12 = require("obsidian");
 var SEARCH_DEBOUNCE_MS = 300;
 var SOURCE_LABELS2 = {
   netease: "\u7F51\u6613\u4E91",
@@ -16174,9 +16651,9 @@ var SOURCE_LABELS2 = {
 function renderCoverPlaceholder(el) {
   el.empty();
   el.addClass("lyrics-download-item-cover-placeholder");
-  (0, import_obsidian11.setIcon)(el, "music");
+  (0, import_obsidian12.setIcon)(el, "music");
 }
-var DownloadModal = class extends import_obsidian11.Modal {
+var DownloadModal = class extends import_obsidian12.Modal {
   constructor(app, plugin) {
     super(app);
     this.plugin = plugin;
@@ -16305,7 +16782,8 @@ var DownloadModal = class extends import_obsidian11.Modal {
       },
       (netErr) => {
         networkError = netErr;
-      }
+      },
+      this.plugin.getSettings().downloadSourceOrder
     );
     if (mySeq !== this.searchSeq)
       return;
@@ -16357,6 +16835,10 @@ var DownloadModal = class extends import_obsidian11.Modal {
       text: song.album ? `${artistLine} \xB7 ${song.album}` : artistLine
     });
     const metaEl = info.createDiv({ cls: "lyrics-download-item-meta" });
+    if (song.ext && song.ext !== "mp3") {
+      const extLabel = song.ext === "m4a" ? "M4A" : song.ext === "flac" ? "FLAC" : song.ext;
+      metaEl.createSpan({ cls: "lyrics-download-item-pill lyrics-download-item-pill-ext", text: extLabel });
+    }
     if (song.vip) {
       metaEl.createSpan({ cls: "lyrics-download-item-pill lyrics-download-item-pill-vip", text: "VIP" });
     }
@@ -16372,14 +16854,14 @@ var DownloadModal = class extends import_obsidian11.Modal {
       text: (_a = SOURCE_LABELS2[song.source]) != null ? _a : song.source
     });
     const prevBtn = row.createDiv({ cls: "lyrics-download-item-btn lyrics-download-item-preview-btn" });
-    (0, import_obsidian11.setIcon)(prevBtn, "play");
+    (0, import_obsidian12.setIcon)(prevBtn, "play");
     prevBtn.setAttribute("title", "\u8BD5\u542C\uFF08\u62C9\u53D6\u6807\u51C6\u6863\u97F3\u9891\uFF0C\u4E0D\u5199\u5165\u5E93\uFF09");
     prevBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       void this.togglePreview(song, prevBtn);
     });
     const dlBtn = row.createDiv({ cls: "lyrics-download-item-btn" });
-    (0, import_obsidian11.setIcon)(dlBtn, "download");
+    (0, import_obsidian12.setIcon)(dlBtn, "download");
     dlBtn.setAttribute("title", song.needsCookie ? "\u4E0B\u8F7D\uFF08\u9700 QQ \u767B\u5F55 Cookie\uFF09" : "\u4E0B\u8F7D\u5230\u97F3\u9891\u6587\u4EF6\u5939");
     dlBtn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -16399,7 +16881,7 @@ var DownloadModal = class extends import_obsidian11.Modal {
       this.stopPreview();
     this.previewKey = key;
     btn.empty();
-    (0, import_obsidian11.setIcon)(btn, "square");
+    (0, import_obsidian12.setIcon)(btn, "square");
     btn.addClass("lyrics-download-item-btn-previewing");
     this.renderProgress(null, `\u6B63\u5728\u8BD5\u542C ${song.name}\u2026`);
     (_a = this.progressWrap) == null ? void 0 : _a.removeClass("lyrics-download-progress-hidden");
@@ -16410,7 +16892,7 @@ var DownloadModal = class extends import_obsidian11.Modal {
       if (this.previewKey !== key)
         return;
       if (!res.ok || !res.data) {
-        new import_obsidian11.Notice(res.message, 6e3);
+        new import_obsidian12.Notice(res.message, 6e3);
         this.stopPreview();
         return;
       }
@@ -16429,14 +16911,14 @@ var DownloadModal = class extends import_obsidian11.Modal {
         if (this.previewAudio !== audio)
           return;
         if (this.previewKey === key)
-          new import_obsidian11.Notice("\u8BD5\u542C\u97F3\u9891\u64AD\u653E\u5931\u8D25", 5e3);
+          new import_obsidian12.Notice("\u8BD5\u542C\u97F3\u9891\u64AD\u653E\u5931\u8D25", 5e3);
         this.stopPreview();
       });
       this.previewAudio = audio;
       await audio.play();
       (_b = this.progressWrap) == null ? void 0 : _b.addClass("lyrics-download-progress-hidden");
     } catch (e) {
-      new import_obsidian11.Notice(`\u8BD5\u542C\u51FA\u9519\uFF1A${e instanceof Error ? e.message : String(e)}`, 6e3);
+      new import_obsidian12.Notice(`\u8BD5\u542C\u51FA\u9519\uFF1A${e instanceof Error ? e.message : String(e)}`, 6e3);
       this.stopPreview();
     }
   }
@@ -16458,13 +16940,20 @@ var DownloadModal = class extends import_obsidian11.Modal {
         prevBtn.empty();
         prevBtn.setAttribute("title", "\u8BD5\u542C\uFF08\u62C9\u53D6\u6807\u51C6\u6863\u97F3\u9891\uFF0C\u4E0D\u5199\u5165\u5E93\uFF09");
         prevBtn.removeClass("lyrics-download-item-btn-previewing");
-        (0, import_obsidian11.setIcon)(prevBtn, "play");
+        (0, import_obsidian12.setIcon)(prevBtn, "play");
       }
       this.previewKey = "";
     }
     (_b = this.progressWrap) == null ? void 0 : _b.addClass("lyrics-download-progress-hidden");
   }
-  /** 搜索渐进渲染：把新到达的平台结果按相似度**增量插入**有序位置（首个到达时清掉「搜索中…」占位），最终不再重排 */
+  /** 来源在设置页「平台优先级」中的序号（未配置/未知源垫底），与 searchCandidates 排序共用 */
+  sourceRank(src) {
+    var _a;
+    const order = (_a = this.plugin.getSettings().downloadSourceOrder) != null ? _a : [];
+    const i = order.indexOf(src);
+    return i < 0 ? order.length : i;
+  }
+  /** 搜索渐进渲染：把新到达的平台结果按**平台优先级→相似度**增量插入有序位置（首个到达时清掉「搜索中…」占位），最终不再重排 */
   appendResultRows(songs) {
     if (!this.resultEl)
       return;
@@ -16479,11 +16968,13 @@ var DownloadModal = class extends import_obsidian11.Modal {
       this.resultEl.empty();
     for (const s of fresh) {
       const score = songSimilarityScore(keyword, s.name, s.artist);
+      const sr = this.sourceRank(s.source);
       let idx = this.pendingResults.length;
       for (let i = 0; i < this.pendingResults.length; i++) {
         const cur = this.pendingResults[i];
+        const cr = this.sourceRank(cur.source);
         const cs = songSimilarityScore(keyword, cur.name, cur.artist);
-        const better = cs < score || cs === score && (s.name.length < cur.name.length || s.name.length === cur.name.length && s.name.localeCompare(cur.name) < 0);
+        const better = cr > sr || cr === sr && (cs < score || cs === score && (s.name.length < cur.name.length || s.name.length === cur.name.length && s.name.localeCompare(cur.name) < 0));
         if (better) {
           idx = i;
           break;
@@ -16534,7 +17025,7 @@ var DownloadModal = class extends import_obsidian11.Modal {
     const head = this.resultEl.createDiv({ cls: "lyrics-download-playlist-head" });
     head.createDiv({ cls: "lyrics-download-playlist-head-title", text: "\u63A8\u8350\u6B4C\u5355" });
     const refresh = head.createDiv({ cls: "lyrics-download-playlist-refresh" });
-    (0, import_obsidian11.setIcon)(refresh, "refresh-cw");
+    (0, import_obsidian12.setIcon)(refresh, "refresh-cw");
     refresh.setAttribute("title", "\u5237\u65B0\u63A8\u8350\u6B4C\u5355");
     refresh.addEventListener("click", () => void this.loadRecommendedPlaylists(this.currentSource, true));
     const sources = this.resultEl.createDiv({ cls: "lyrics-download-playlist-sources" });
@@ -16612,7 +17103,7 @@ var DownloadModal = class extends import_obsidian11.Modal {
       return;
     const head = this.resultEl.createDiv({ cls: "lyrics-download-playlist-head" });
     const back = head.createDiv({ cls: "lyrics-download-playlist-back" });
-    (0, import_obsidian11.setIcon)(back, "arrow-left");
+    (0, import_obsidian12.setIcon)(back, "arrow-left");
     back.setAttribute("title", "\u8FD4\u56DE\u63A8\u8350\u6B4C\u5355");
     back.addEventListener("click", () => this.goBackToPlaylists());
     head.createDiv({ cls: "lyrics-download-playlist-head-title", text: playlist.name });
@@ -16620,7 +17111,7 @@ var DownloadModal = class extends import_obsidian11.Modal {
       head.createSpan({ cls: "lyrics-download-item-tag", text: `\u5171 ${count} \u9996` });
     if (onRefresh) {
       const refresh = head.createDiv({ cls: "lyrics-download-playlist-refresh" });
-      (0, import_obsidian11.setIcon)(refresh, "refresh-cw");
+      (0, import_obsidian12.setIcon)(refresh, "refresh-cw");
       refresh.setAttribute("title", "\u5237\u65B0\u6B4C\u5355\u6B4C\u66F2");
       refresh.addEventListener("click", () => onRefresh());
     }
@@ -16679,10 +17170,10 @@ var DownloadModal = class extends import_obsidian11.Modal {
         this.plugin.getSettings().platformCookies,
         (percent, label) => this.renderProgress(percent, label)
       );
-      new import_obsidian11.Notice(message, ok ? 4e3 : 7e3);
+      new import_obsidian12.Notice(message, ok ? 4e3 : 7e3);
       if (ok) {
         btn.empty();
-        (0, import_obsidian11.setIcon)(btn, "check");
+        (0, import_obsidian12.setIcon)(btn, "check");
         btn.addClass("lyrics-download-item-btn-done");
         btn.removeClass("lyrics-download-item-btn-loading");
       } else {
@@ -16690,7 +17181,7 @@ var DownloadModal = class extends import_obsidian11.Modal {
         btn.removeClass("lyrics-download-item-btn-loading");
       }
     } catch (e) {
-      new import_obsidian11.Notice(`\u4E0B\u8F7D\u51FA\u9519\uFF1A${e instanceof Error ? e.message : String(e)}`, 7e3);
+      new import_obsidian12.Notice(`\u4E0B\u8F7D\u51FA\u9519\uFF1A${e instanceof Error ? e.message : String(e)}`, 7e3);
       btn.removeAttribute("disabled");
       btn.removeClass("lyrics-download-item-btn-loading");
     }
@@ -16707,7 +17198,7 @@ var DownloadModal = class extends import_obsidian11.Modal {
 };
 
 // src/LyricsView.ts
-var LyricsView = class extends import_obsidian12.ItemView {
+var LyricsView = class extends import_obsidian13.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.lyricsEl = null;
@@ -16782,7 +17273,7 @@ var LyricsView = class extends import_obsidian12.ItemView {
       return;
     this.playPauseBtn.empty();
     const icon = this.playPauseBtn.createSpan({ cls: "lyrics-panel-play-icon" });
-    (0, import_obsidian12.setIcon)(icon, isPlaying ? "pause" : "play");
+    (0, import_obsidian13.setIcon)(icon, isPlaying ? "pause" : "play");
   }
   // --- Status bar ---
   createStatusBar(container) {
@@ -16795,7 +17286,7 @@ var LyricsView = class extends import_obsidian12.ItemView {
     const controls = this.statusBar.createDiv({ cls: "lyrics-statusbar-controls" });
     this.statusBarPlay = controls.createSpan({ cls: "lyrics-statusbar-btn" });
     this.statusBarPlay.setAttribute("title", "\u64AD\u653E/\u6682\u505C");
-    (0, import_obsidian12.setIcon)(this.statusBarPlay, "play");
+    (0, import_obsidian13.setIcon)(this.statusBarPlay, "play");
     this.statusBarPlay.addEventListener("click", () => this.plugin.toggleActivePlayer());
     this.statusBarVolumeIcon = this.statusBar.createSpan({ cls: "lyrics-statusbar-volume-icon" });
     this.renderVolumeIcon();
@@ -16819,7 +17310,7 @@ var LyricsView = class extends import_obsidian12.ItemView {
     });
     this.statusBarLocate = this.statusBar.createSpan({ cls: "lyrics-statusbar-locate-btn" });
     this.statusBarLocate.setAttribute("title", "\u5B9A\u4F4D\u5230\u5F53\u524D\u6B4C\u66F2\uFF08\u6B4C\u5355\u6253\u5F00\u65F6\u6EDA\u52A8\u5B9A\u4F4D\uFF09\u6216\u6B4C\u8BCD\u7B14\u8BB0\u6807\u7B7E\u9875");
-    (0, import_obsidian12.setIcon)(this.statusBarLocate, "locate-fixed");
+    (0, import_obsidian13.setIcon)(this.statusBarLocate, "locate-fixed");
     this.statusBarLocate.addEventListener("click", () => this.locateLyricsNote());
     const info = this.statusBar.createDiv({ cls: "lyrics-statusbar-info" });
     this.statusBarTitle = info.createSpan({ cls: "lyrics-statusbar-song", text: "LyricFlux" });
@@ -16835,7 +17326,7 @@ var LyricsView = class extends import_obsidian12.ItemView {
       return;
     const mode = this.plugin.getPlayMode();
     const icon = mode === "single" ? "repeat-1" : mode === "shuffle" ? "shuffle" : "repeat";
-    (0, import_obsidian12.setIcon)(this.statusBarMode, icon);
+    (0, import_obsidian13.setIcon)(this.statusBarMode, icon);
     const titles = {
       off: "\u64AD\u653E\u6A21\u5F0F\uFF1A\u5173\u95ED",
       single: "\u64AD\u653E\u6A21\u5F0F\uFF1A\u5355\u66F2\u5FAA\u73AF",
@@ -16855,7 +17346,7 @@ var LyricsView = class extends import_obsidian12.ItemView {
       return;
     const vol = this.plugin.getVolume();
     const icon = vol === 0 ? "volume-x" : vol < 50 ? "volume-1" : "volume-2";
-    (0, import_obsidian12.setIcon)(this.statusBarVolumeIcon, icon);
+    (0, import_obsidian13.setIcon)(this.statusBarVolumeIcon, icon);
     this.statusBarVolumeIcon.setAttribute("title", `\u97F3\u91CF ${vol}%`);
   }
   toggleVolumePopup() {
@@ -16921,7 +17412,7 @@ var LyricsView = class extends import_obsidian12.ItemView {
       this.statusBarTitle.setText("LyricFlux");
       if (this.statusBarTime)
         this.statusBarTime.setText("");
-      (0, import_obsidian12.setIcon)(this.statusBarPlay, "play");
+      (0, import_obsidian13.setIcon)(this.statusBarPlay, "play");
       (_a = this.statusBarLocate) == null ? void 0 : _a.addClass("lyrics-statusbar-locate-hidden");
       return;
     }
@@ -16929,7 +17420,7 @@ var LyricsView = class extends import_obsidian12.ItemView {
     const title = state.title || "\u672A\u77E5\u6B4C\u66F2";
     const actor = state.actor || "\u672A\u77E5\u827A\u672F\u5BB6";
     this.statusBarTitle.setText(`${title} - ${actor}`);
-    (0, import_obsidian12.setIcon)(this.statusBarPlay, state.isPlaying ? "pause" : "play");
+    (0, import_obsidian13.setIcon)(this.statusBarPlay, state.isPlaying ? "pause" : "play");
     this.statusBarPlay.setAttribute("title", state.isPlaying ? "\u6682\u505C" : "\u64AD\u653E");
     if (this.statusBarTime) {
       if (state.duration) {
@@ -17143,11 +17634,11 @@ var LyricsView = class extends import_obsidian12.ItemView {
     titleWrap.createSpan({ text: "\u6B4C\u66F2\u5217\u8868" });
     this.songListCountEl = titleWrap.createSpan({ cls: "lyrics-song-popup-count", text: `(${this.plugin.getSongList().length})` });
     const closeBtn = header.createSpan({ cls: "lyrics-song-popup-close" });
-    (0, import_obsidian12.setIcon)(closeBtn, "x");
+    (0, import_obsidian13.setIcon)(closeBtn, "x");
     closeBtn.addEventListener("click", () => this.closeSongListPopup());
     const filterRow = this.songListPopup.createDiv({ cls: "lyrics-song-popup-filters" });
     const dlBtn = filterRow.createDiv({ cls: "lyrics-song-popup-dl-btn" });
-    (0, import_obsidian12.setIcon)(dlBtn, "download");
+    (0, import_obsidian13.setIcon)(dlBtn, "download");
     dlBtn.setAttribute("title", "\u4E0B\u8F7D\u6B4C\u66F2");
     dlBtn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -17223,11 +17714,11 @@ var LyricsView = class extends import_obsidian12.ItemView {
         thumb.appendChild(img);
       } else {
         const thumb = item.createDiv({ cls: "lyrics-songs-item-thumb lyrics-songs-item-thumb-placeholder" });
-        (0, import_obsidian12.setIcon)(thumb, "music");
+        (0, import_obsidian13.setIcon)(thumb, "music");
       }
       if (song.kind === "note" || /\.mp3$/i.test(song.path)) {
         const editBtn = item.createDiv({ cls: "lyrics-songs-edit-btn" });
-        (0, import_obsidian12.setIcon)(editBtn, "pencil");
+        (0, import_obsidian13.setIcon)(editBtn, "pencil");
         editBtn.setAttribute("title", "\u7F16\u8F91\u6807\u7B7E");
         editBtn.addEventListener("click", (e) => {
           e.stopPropagation();
@@ -17241,7 +17732,7 @@ var LyricsView = class extends import_obsidian12.ItemView {
         });
       } else {
         const viewBtn = item.createDiv({ cls: "lyrics-songs-edit-btn" });
-        (0, import_obsidian12.setIcon)(viewBtn, "eye");
+        (0, import_obsidian13.setIcon)(viewBtn, "eye");
         viewBtn.setAttribute("title", "\u67E5\u770B\u6807\u7B7E");
         viewBtn.addEventListener("click", (e) => {
           e.stopPropagation();
@@ -17278,7 +17769,7 @@ var LyricsView = class extends import_obsidian12.ItemView {
       return { type: "external", path };
     }
     const file = this.plugin.app.vault.getAbstractFileByPath(path);
-    return file instanceof import_obsidian12.TFile ? { type: "vault", file } : null;
+    return file instanceof import_obsidian13.TFile ? { type: "vault", file } : null;
   }
   /** 取某歌曲的音频封面 blob URL（缓存于 songCoverUrls，弹窗关闭时统一 revoke） */
   getAudioCoverUrl(song) {
@@ -17323,7 +17814,7 @@ function resolveSongAudioSource(app, path) {
     return { type: "external", path };
   }
   const file = app.vault.getAbstractFileByPath(path);
-  return file instanceof import_obsidian13.TFile ? { type: "vault", file } : null;
+  return file instanceof import_obsidian14.TFile ? { type: "vault", file } : null;
 }
 async function listExternalAudioFiles(root) {
   try {
@@ -17350,7 +17841,7 @@ async function listExternalAudioFiles(root) {
     return [];
   }
 }
-var LyricsPlugin = class extends import_obsidian13.Plugin {
+var LyricsPlugin = class extends import_obsidian14.Plugin {
   constructor() {
     super(...arguments);
     this.state = null;
@@ -17657,7 +18148,7 @@ var LyricsPlugin = class extends import_obsidian13.Plugin {
       return;
     }
     const file = this.app.vault.getAbstractFileByPath(song.path);
-    if (!(file instanceof import_obsidian13.TFile))
+    if (!(file instanceof import_obsidian14.TFile))
       return;
     const sourcePath = fromPath != null ? fromPath : (_a = this.getLyricsState()) == null ? void 0 : _a.filePath;
     let leaf = null;

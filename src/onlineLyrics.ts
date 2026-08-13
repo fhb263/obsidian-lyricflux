@@ -14,6 +14,14 @@ export interface NetEaseSong {
     album?: string
     /** 专辑封面 URL（al.picUrl，多为 http，下载时统一转 https） */
     coverUrl?: string
+    /** 付费/版权字段（cloudsearch 的 fee）：0=免费可下，>0=VIP/付费/试听（外链下载会失败） */
+    fee?: number
+    /** 时长（秒，dt 毫秒换算） */
+    duration?: number
+    /** 文件大小（字节，取 h/m/l 里最高可用码率的 size） */
+    size?: number
+    /** 码率（kbps） */
+    bitrate?: number
 }
 
 interface ApiResult {
@@ -79,14 +87,32 @@ async function fetchJsonViaFetch(url: string): Promise<ApiResult> {
     }
 }
 
-/** 网易云搜索歌曲（无需登录）：`/api/cloudsearch/pc?s=…&type=1&limit=10`；歌手字段是 `ar`、专辑是 `al` */
+/** 网易云搜索歌曲（无需登录）：`/api/cloudsearch/pc?s=…&type=1&limit=30`；歌手字段是 `ar`、专辑是 `al` */
 export async function searchSong(query: string): Promise<NetEaseSong[]> {
-    const url = `https://music.163.com/api/cloudsearch/pc?s=${encodeURIComponent(query)}&type=1&limit=10`
+    // limit=30：下载弹窗下拉与标签编辑器搜索都展示更多候选（原 limit=10 太少）
+    const url = `https://music.163.com/api/cloudsearch/pc?s=${encodeURIComponent(query)}&type=1&limit=30`
     const data = await fetchJson(url)
     const songs = data.result?.songs
     if (!Array.isArray(songs)) return []
     return songs.map((s) => {
-        const raw = s as { id?: unknown; name?: unknown; ar?: Array<{ name?: unknown }>; al?: { name?: unknown; picUrl?: unknown } }
+        const raw = s as {
+            id?: unknown
+            name?: unknown
+            ar?: Array<{ name?: unknown }>
+            al?: { name?: unknown; picUrl?: unknown }
+            fee?: unknown
+            dt?: unknown
+            h?: { br?: unknown; size?: unknown }
+            m?: { br?: unknown; size?: unknown }
+            l?: { br?: unknown; size?: unknown }
+        }
+        // 行内显示实际下载档位：无 Cookie 外链为标准 128k（l 档），不虚标最高码率（h/m）
+        let size: number | undefined
+        let bitrate: number | undefined
+        if (raw.l && typeof raw.l.size === 'number' && raw.l.size > 0) {
+            size = raw.l.size
+            if (typeof raw.l.br === 'number') bitrate = Math.round(raw.l.br / 1000)
+        }
         return {
             id: Number(raw.id) || 0,
             name: typeof raw.name === 'string' ? raw.name : '',
@@ -95,6 +121,10 @@ export async function searchSong(query: string): Promise<NetEaseSong[]> {
                 : [],
             album: raw.al && typeof raw.al.name === 'string' ? raw.al.name : undefined,
             coverUrl: raw.al && typeof raw.al.picUrl === 'string' ? raw.al.picUrl : undefined,
+            fee: typeof raw.fee === 'number' ? raw.fee : undefined,
+            duration: typeof raw.dt === 'number' && raw.dt > 0 ? Math.round(raw.dt / 1000) : undefined,
+            size,
+            bitrate,
         }
     })
 }

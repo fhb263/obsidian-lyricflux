@@ -903,6 +903,11 @@ If your plugin does not need CSS, delete this file.
     color: var(--text-on-accent);
     font-weight: 600;
 }
+.lyrics-download-item-pill-ext {
+    background: var(--color-blue);
+    color: var(--text-on-accent);
+    font-weight: 600;
+}
 
 .lyrics-download-item-tag {
     flex-shrink: 0;
@@ -1263,6 +1268,52 @@ If your plugin does not need CSS, delete this file.
     white-space: nowrap;
 }
 
+/* 多平台封面候选列表（v1.4.1：获取封面后展示，缩略图网格，点击某条导入） */
+.lyrics-tag-cover-candidates {
+    margin-top: 8px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    max-height: 260px;
+    overflow-y: auto;
+}
+.lyrics-tag-cover-candidates-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+    gap: 8px;
+    padding: 8px 10px;
+}
+.lyrics-tag-cover-candidate {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    padding: 4px;
+    border-radius: 6px;
+    cursor: pointer;
+}
+.lyrics-tag-cover-candidate:hover {
+    background-color: var(--background-modifier-hover);
+}
+.lyrics-tag-cover-candidate-img {
+    width: 64px;
+    height: 64px;
+    object-fit: cover;
+    border-radius: 4px;
+    background-color: var(--background-secondary);
+}
+.lyrics-tag-cover-candidate-img-broken {
+    visibility: hidden;
+}
+.lyrics-tag-cover-candidate-meta {
+    width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: center;
+    font-size: var(--font-ui-smaller);
+    color: var(--text-normal);
+}
+
 /* 歌词翻译进度条（v1.4.1：翻译中显示，逐行进度） */
 .lyrics-tag-translate-progress {
     margin-top: 8px;
@@ -1367,6 +1418,49 @@ If your plugin does not need CSS, delete this file.
 }
 .lyrics-cookie-test-ok { color: var(--color-green); }
 .lyrics-cookie-test-bad { color: var(--color-red); }
+
+/* 下载平台优先级排序 cell（v1.4.2）：内嵌于平台 cookie 行 header 最左，序号 + 拖动手柄（拖动换序） */
+.lyrics-source-order-cell {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    padding-right: 8px;
+    margin-right: 2px;
+    border-right: 1px solid var(--background-modifier-border);
+    cursor: grab;
+}
+.lyrics-source-order-cell:active { cursor: grabbing; }
+.lyrics-source-order-rank {
+    flex-shrink: 0;
+    min-width: 16px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+    font-weight: 600;
+}
+.lyrics-source-order-grip {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    color: var(--text-muted);
+    opacity: 0.6;
+    cursor: grab;
+}
+.lyrics-source-order-grip:hover { opacity: 1; color: var(--text-normal); }
+.lyrics-source-order-grip:active { cursor: grabbing; }
+/* 被拖行：半透明 + 虚线轮廓提示正在拖动 */
+.lyrics-cookie-row.lyrics-source-order-dragging {
+    opacity: 0.5;
+    outline: 1px dashed var(--interactive-accent);
+    outline-offset: -1px;
+}
+/* 落点指示线：插入到该行上方/下方 */
+.lyrics-cookie-row.lyrics-source-order-drop-before { box-shadow: 0 -2px 0 var(--interactive-accent); }
+.lyrics-cookie-row.lyrics-source-order-drop-after { box-shadow: 0 2px 0 var(--interactive-accent); }
 
 /* 设置页「清除缓存」按钮（v1.4.1）：红底白字，强调破坏性操作 */
 .lyrics-clear-cache-btn {

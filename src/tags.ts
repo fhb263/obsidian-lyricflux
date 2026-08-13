@@ -3,6 +3,7 @@ import * as jsmediatags from 'jsmediatags'
 import { type App, TFile } from 'obsidian'
 import { extractFlacLyrics } from 'renderers/vorbis'
 import { extractOggTags } from 'renderers/ogg'
+import { estimateMp3Duration } from 'mp3Duration'
 
 export interface Mp3Tags {
     title?: string
@@ -123,6 +124,27 @@ export async function readMp3Tags(app: App, source: AudioSource): Promise<Mp3Tag
     return buf ? parseTags(buf) : null
 }
 
+/** 读整个音频文件字节（编辑弹窗用：一次读取同时解析标签和时长）；失败返回 null */
+export async function readAudioFileBytes(app: App, source: AudioSource): Promise<Uint8Array | null> {
+    return readFileBuffer(app, source)
+}
+
+/** 获取音频文件字节大小（vault 走 adapter.stat 实时查盘，库外走 fs.stat）；失败返回 null */
+export async function getAudioFileSize(app: App, source: AudioSource): Promise<number | null> {
+    try {
+        if (source.type === 'vault' && source.file) {
+            const stat = await app.vault.adapter.stat(source.file.path)
+            return typeof stat?.size === 'number' ? stat.size : null
+        }
+        if (source.type === 'external' && source.path) {
+            const fs = (window as any).require('fs')
+            const stat = await fs.promises.stat(source.path)
+            return typeof stat?.size === 'number' ? stat.size : null
+        }
+    } catch { /* fallthrough */ }
+    return null
+}
+
 /** 桌面环境：用 fs 局部读音频 ID3 头部（10 字节头 + 标签区），避免整文件读（列表富化用） */
 export async function readMp3TagHead(app: App, source: AudioSource): Promise<Uint8Array | null> {
     try {
@@ -154,15 +176,8 @@ export async function readMp3TagHead(app: App, source: AudioSource): Promise<Uin
     }
 }
 
-/**
- * 写标签：备份原文件 → node-id3.update → 写回 → 回读校验（长度与可解析性）→ 失败还原。
- * 移除封面：cover 传 null；歌词/注释传空串表示移除。
- */
-export async function writeMp3Tags(app: App, source: AudioSource, tags: Mp3Tags): Promise<boolean> {
-    const buf = await readFileBuffer(app, source)
-    if (!buf || buf.byteLength === 0) return false
-    const original = new Uint8Array(buf)
-
+/** 组装 node-id3 update 的 patch（写标签与下载内嵌共用；歌词空串=移除 USLT、cover null=移除 APIC） */
+function buildTagPatch(tags: Mp3Tags): Record<string, any> {
     const patch: Record<string, any> = {}
     if (tags.title !== undefined) patch.title = tags.title
     if (tags.artist !== undefined) patch.artist = tags.artist
@@ -175,6 +190,29 @@ export async function writeMp3Tags(app: App, source: AudioSource, tags: Mp3Tags)
             ? { mime: tags.cover.mime, type: { id: 3 }, description: '', imageBuffer: Buffer.from(tags.cover.data) }
             : undefined // 移除封面：node-id3 update({image:undefined}) 会丢弃 APIC 帧（已验证）
     }
+    return patch
+}
+
+/** 把标签内嵌进内存中的音频字节（下载后写盘前用），失败返回 null */
+export function embedTagsIntoBytes(bytes: Uint8Array, tags: Mp3Tags): Uint8Array | null {
+    try {
+        const updated = NodeID3.update(buildTagPatch(tags), Buffer.from(bytes))
+        return updated instanceof Uint8Array ? updated : null
+    } catch {
+        return null
+    }
+}
+
+/**
+ * 写标签：备份原文件 → node-id3.update → 写回 → 回读校验（长度与可解析性）→ 失败还原。
+ * 移除封面：cover 传 null；歌词/注释传空串表示移除。
+ */
+export async function writeMp3Tags(app: App, source: AudioSource, tags: Mp3Tags): Promise<boolean> {
+    const buf = await readFileBuffer(app, source)
+    if (!buf || buf.byteLength === 0) return false
+    const original = new Uint8Array(buf)
+
+    const patch = buildTagPatch(tags)
 
     try {
         const updated = NodeID3.update(patch, Buffer.from(original))
@@ -188,7 +226,10 @@ export async function writeMp3Tags(app: App, source: AudioSource, tags: Mp3Tags)
         // 只有部分写入/截断等异常才会长度不一致，配合可解析性兜底
         const lengthOk = !!verify && verify.byteLength === updated.byteLength && verify.byteLength > 512
         const readable = verify ? parseTags(verify) !== null : false
-        if (!lengthOk || !readable) {
+        // 音频完整性校验：节点标签区后应能遍历出 MPEG 帧（估计时长 >0）。
+        // 防止 node-id3 在异常文件上把音频区写坏但标签仍可读 → 误判成功保存损坏文件。
+        const audioOk = verify ? (estimateMp3Duration(verify) ?? 0) > 0 : false
+        if (!lengthOk || !readable || !audioOk) {
             await writeFileBuffer(app, source, original) // 还原
             return false
         }

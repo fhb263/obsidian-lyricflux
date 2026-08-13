@@ -1,4 +1,4 @@
-import type { App, TFile } from 'obsidian'
+import { Notice, type App, type TFile } from 'obsidian'
 import Player from './Player.svelte'
 import type LyricsPlugin from 'main'
 import { extractEmbeddedLyrics, pickEmbeddedLyrics } from 'renderers/id3'
@@ -7,6 +7,7 @@ import { extractMp4Lyrics } from 'renderers/mp4'
 import { extractOggLyrics } from 'renderers/ogg'
 import type { LyricsLine } from 'renderers/renderer'
 import LyricsRenderer from 'renderers'
+import { detectAudioContainer } from 'songScanner'
 
 interface Mp3AudioSource {
     type: 'vault' | 'external'
@@ -102,18 +103,43 @@ export default class Mp3PlayerRender {
         }
     }
 
-    /** 生成可播放 URL */
+    /** 生成可播放 URL。检测真实容器：M4A 伪 mp3 用 audio/mp4 并提示，避免「有歌名但进度不动」。 */
     private async resolvePlayableUrl(): Promise<string> {
-        if (this.audioSource.type === 'vault' && this.audioSource.file) {
-            return this.app.vault.getResourcePath(this.audioSource.file)
-        }
         if (this.audioSource.type === 'external' && this.audioSource.path) {
             const fs = (window as any).require('fs')
             const buf: Buffer = await fs.promises.readFile(this.audioSource.path)
-            this.audioBlobUrl = URL.createObjectURL(new Blob([buf], { type: 'audio/mpeg' }))
+            const mime = this.pickAudioMime(new Uint8Array(buf))
+            if (mime !== 'audio/mpeg') {
+                new Notice(`该文件实为 ${mime === 'audio/mp4' ? 'M4A/AAC' : mime.split('/')[1].toUpperCase()} 格式，已按实际格式播放`, 6000)
+            }
+            this.audioBlobUrl = URL.createObjectURL(new Blob([buf], { type: mime }))
             return this.audioBlobUrl
         }
+        if (this.audioSource.type === 'vault' && this.audioSource.file) {
+            // vault 内文件：读字节检测真实容器，M4A 伪 mp3 需 Blob（audio/mp4），否则用资源路径
+            try {
+                const bin = await this.app.vault.readBinary(this.audioSource.file)
+                const mime = this.pickAudioMime(new Uint8Array(bin))
+                if (mime !== 'audio/mpeg') {
+                    new Notice(`该文件实为 ${mime === 'audio/mp4' ? 'M4A/AAC' : mime.split('/')[1].toUpperCase()} 格式，已按实际格式播放`, 6000)
+                    this.audioBlobUrl = URL.createObjectURL(new Blob([bin], { type: mime }))
+                    return this.audioBlobUrl
+                }
+            } catch { /* 读失败回退资源路径 */ }
+            return this.app.vault.getResourcePath(this.audioSource.file)
+        }
         return ''
+    }
+
+    /** 按文件头魔数选 MIME：标准 MPEG 帧/ID3 → audio/mpeg；M4A → audio/mp4；FLAC/OGG 对应；未知按扩展名兜底 mp3 */
+    private pickAudioMime(bytes: Uint8Array): string {
+        const container = detectAudioContainer(bytes)
+        switch (container) {
+            case 'm4a': return 'audio/mp4'
+            case 'flac': return 'audio/flac'
+            case 'ogg': return 'audio/ogg'
+            default: return 'audio/mpeg'
+        }
     }
 
     /** 设置展示用元数据（来自歌单富化后的标签），供状态栏显示 */

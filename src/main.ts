@@ -1,11 +1,11 @@
 import LyricsMarkdownRender from 'LyricsMarkdownRender'
 import Mp3PlayerRender from 'Mp3PlayerRender'
 import LyricsSettings, { DEFAULT_SETTINGS, type Settings } from 'Settings'
-import { Plugin, type MarkdownPostProcessorContext, TFile, type WorkspaceLeaf } from 'obsidian'
+import { Plugin, type MarkdownPostProcessorContext, TFile, type WorkspaceLeaf, type App } from 'obsidian'
 import type { LyricsLine } from 'renderers/renderer'
 import { LYRICS_VIEW_TYPE, PLAY_MODES, SPEED_OPTIONS, VOLUME_OPTIONS, type PlayMode } from 'shared'
 import { resolveAudioSource, readMp3TagHead, parseTagsForPlugin, type Mp3Tags, type AudioSource } from 'tags'
-import { isAudioFile, buildMp3Song, dedupeMp3ByNote, resolvePlayingMp3Metadata } from 'songScanner'
+import { isAudioFile, buildMp3Song, dedupeMp3ByNote, resolvePlayingMp3Metadata, isWindowsAbsolutePath } from 'songScanner'
 import LyricsView from 'LyricsView'
 
 export interface LyricsState {
@@ -31,6 +31,40 @@ export interface LyricSong {
     /** 歌曲来源：'note'=LRC笔记（默认），'mp3'=裸音频文件（v1.5.0 新增） */
     kind: 'note' | 'mp3'
     audioPath?: string // 解析出的音频路径，作为标签缓存 key
+}
+
+/**
+ * 构造裸 MP3 的 AudioSource（v1.4.2 库外音频文件夹支持）：
+ * Windows 盘符绝对路径 → external（fs 直读）；否则按 vault 内路径找 TFile。
+ * 找不到返回 null。
+ */
+function resolveSongAudioSource(app: App, path: string): AudioSource | null {
+    if (isWindowsAbsolutePath(path)) {
+        return { type: 'external', path }
+    }
+    const file = app.vault.getAbstractFileByPath(path)
+    return file instanceof TFile ? { type: 'vault', file } : null
+}
+
+/** 递归枚举库外目录下所有音频文件（Windows 盘符绝对路径的音频文件夹用） */
+async function listExternalAudioFiles(root: string): Promise<string[]> {
+    try {
+        const fs = (window as any).require('fs')
+        const out: string[] = []
+        const walk = async (dir: string): Promise<void> => {
+            let entries: any[] = []
+            try { entries = await fs.promises.readdir(dir, { withFileTypes: true }) } catch { return }
+            for (const e of entries) {
+                const full = dir.replace(/[\\/]+$/, '') + '/' + e.name
+                if (e.isDirectory()) await walk(full)
+                else if (e.isFile() && isAudioFile(e.name)) out.push(full)
+            }
+        }
+        await walk(root.replace(/[\\/]+$/, ''))
+        return out
+    } catch {
+        return []
+    }
 }
 
 export default class LyricsPlugin extends Plugin {
@@ -448,10 +482,9 @@ export default class LyricsPlugin extends Plugin {
         const player = this.getActivePlayer()
         if (player && !player.paused()) player.pause()
 
-        // 解析音频源
-        const file = this.app.vault.getAbstractFileByPath(song.path)
-        if (!(file instanceof TFile)) return
-        const src = { type: 'vault' as const, file }
+        // 解析音频源（库外盘符路径 → external；vault 内 → TFile）
+        const src = resolveSongAudioSource(this.app, song.path)
+        if (!src) return
         const render = new Mp3PlayerRender(this, `mp3://${song.path}`, src)
         render.setMetadata(song.title, song.actor)
         await render.init()
@@ -470,12 +503,18 @@ export default class LyricsPlugin extends Plugin {
             // --- 裸 MP3 扫描（音频文件路径） ---
             const audioFolder = this.getSettings().audioFolder
             if (audioFolder) {
-                const audioPrefix = audioFolder.replace(/\/+$/, '') + '/'
-                const allFiles = this.app.vault.getFiles()
-                const mp3Songs = allFiles
-                    .filter((f) => f.path.startsWith(audioPrefix) && isAudioFile(f.path))
-                    .map((f) => buildMp3Song(f.path))
-                songs.push(...mp3Songs)
+                if (isWindowsAbsolutePath(audioFolder)) {
+                    // 库外盘符绝对路径：用 fs 递归枚举音频文件，产出 external 歌项
+                    const externalPaths = await listExternalAudioFiles(audioFolder)
+                    songs.push(...externalPaths.map((p) => buildMp3Song(p)))
+                } else {
+                    const audioPrefix = audioFolder.replace(/\/+$/, '') + '/'
+                    const allFiles = this.app.vault.getFiles()
+                    const mp3Songs = allFiles
+                        .filter((f) => f.path.startsWith(audioPrefix) && isAudioFile(f.path))
+                        .map((f) => buildMp3Song(f.path))
+                    songs.push(...mp3Songs)
+                }
             }
         } else {
             // --- LRC 笔记扫描（LRC 笔记路径） ---
@@ -568,11 +607,10 @@ export default class LyricsPlugin extends Plugin {
         let key = song.audioPath
         let src = null as AudioSource | null
         if (song.kind === 'mp3') {
-            // 裸 MP3：audioPath 即自身路径，直接构 AudioSource（vault 内）
+            // 裸 MP3：audioPath 即自身路径，构造 AudioSource（库外盘符路径 → external，否则 vault）
             key = song.audioPath ?? ''
             if (!key || this.audioTagCache.has(key)) return
-            const file = this.app.vault.getAbstractFileByPath(key)
-            if (file instanceof TFile) src = { type: 'vault', file }
+            src = resolveSongAudioSource(this.app, key)
         } else if (key === undefined) {
             // 笔记类：现有逻辑
             src = await resolveAudioSource(this.app, song.path)
@@ -625,6 +663,21 @@ export default class LyricsPlugin extends Plugin {
             }
         }
         void this.scanLyricSongs()
+    }
+
+    /** 删除音频文件后调用：若删除的正是当前播放的裸 MP3 则卸载渲染器并复位状态；随后重扫歌单 */
+    public async handleAudioDeleted(audioPath: string): Promise<void> {
+        const state = this.getLyricsState()
+        if (state?.sourceKind === 'mp3' && state.filePath === `mp3://${audioPath}`) {
+            const renderer = this.activeRenderers.get(state.filePath)
+            if (renderer instanceof Mp3PlayerRender) {
+                await renderer.onunload()
+                this.activeRenderers.delete(state.filePath)
+            }
+            this.lastActiveRenderPath = null
+            this.updateLyricsState(null)
+        }
+        await this.scanLyricSongs()
     }
 
     public getSongList(): LyricSong[] { return this.songList }
