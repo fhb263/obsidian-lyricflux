@@ -3,7 +3,7 @@
  * 支持源：网易云（免登录，外链标准音质；**配置 Cookie + 会员时可走 weapi/eapi 下载 VIP 高音质**）
  *        + QQ音乐（需登录 Cookie，musicu.fcg vkey）
  *        + 酷狗（免登录，getSongInfo.php 免费通道）+ 酷我（免登录，mobi.s 车载通道）。
- * 流程：多源搜索（合并结果）→ 按来源分发下载 → 内嵌标签（仅 MP3）→ 写 vault（备份-校验-还原）→ 重扫。
+ * 流程：多源搜索（合并结果）→ 按来源分发下载 → 内嵌标签（MP3/M4A，含歌词/封面）→ 写 vault（备份-校验-还原）→ 重扫。
  */
 import { App, TAbstractFile, TFile } from 'obsidian'
 import type LyricsPlugin from 'main'
@@ -13,7 +13,9 @@ import { buildSongFilename, songSimilarityScore, isNeteaseDownloadable } from 'd
 import {
     buildGoogleTranslateUrl, parseGoogleTranslateResponse,
     buildMyMemoryUrl, parseMyMemoryResponse, parseLyricLines, buildBilingualLrc,
-    buildDeepseekRequest, parseDeepseekResponse, splitDeepseekLyricsResponse, type TranslateProvider,
+    buildDeepseekRequest, parseDeepseekResponse, splitDeepseekLyricsResponse,
+    splitLyricLines, mergeTranslatedRows, isAllRejected, type TranslateProvider,
+    DeepseekSseAccumulator,
 } from 'translate'
 import { isWindowsAbsolutePath } from 'songScanner'
 import { formatBytes } from 'tagSize'
@@ -741,6 +743,33 @@ async function downloadAudioFrom(
     return res.data
 }
 
+/**
+ * 下载后内嵌标签（QQ/酷狗/酷我共用）：并行拉取歌词（各平台接口）+ 封面，
+ * 连同标题/歌手/专辑一并内嵌（mp3→node-id3，m4a→writeMp4Tags）。
+ * 返回内嵌后字节 + 是否真正内嵌 + 歌词/封面是否取得（供结果消息如实标注）。
+ */
+async function enrichDownloadTags(
+    song: DownloadSong,
+    audio: Uint8Array,
+    onProgress?: DownloadProgressCallback,
+): Promise<{ data: Uint8Array; embedded: boolean; lyric: string | null; cover: { mime: string; data: Uint8Array } | null }> {
+    onProgress?.(null, '正在获取歌词与封面…')
+    const [lyric, cover] = await Promise.all([
+        fetchSongLyrics(song).catch(() => null),
+        song.coverUrl ? downloadImage(song.coverUrl).catch(() => null) : Promise.resolve(null),
+    ])
+    onProgress?.(null, '正在内嵌标签…')
+    const tags: Mp3Tags = {
+        title: song.name,
+        artist: song.artist,
+        album: song.album,
+        lyrics: lyric ?? undefined,
+        cover: cover ?? undefined,
+    }
+    const enriched = embedTagsIntoBytes(audio, tags)
+    return { data: enriched ?? audio, embedded: !!enriched, lyric, cover }
+}
+
 // --- QQ 音乐 ---
 
 /** 下载 QQ 歌曲到 vault（需登录 Cookie）；m4a 无法用 node-id3 内嵌标签，按实际格式决定扩展名 */
@@ -771,17 +800,22 @@ async function downloadQq(
     const audio = audioRes?.data
     if (!audio || audio.byteLength < MIN_AUDIO_BYTES) return { ok: false, message: '下载失败（可能付费受限或 Cookie 权限不足）' }
     const isMp3 = looksLikeMp3(audio)
-    const ext = isMp3 ? 'mp3' : looksLikeM4a(audio) ? 'm4a' : 'mp3'
+    const isM4a = looksLikeM4a(audio)
+    const ext = isMp3 ? 'mp3' : isM4a ? 'm4a' : 'mp3'
     let data = audio
-    if (isMp3) {
-        const enriched = embedTagsIntoBytes(audio, { title: song.name, artist: song.artist, album: song.album })
-        if (enriched) data = enriched
+    let metaNote = ''
+    if (isMp3 || isM4a) {
+        const enriched = await enrichDownloadTags(song, audio, onProgress)
+        data = enriched.data
+        metaNote = enriched.embedded
+            ? (enriched.lyric && enriched.cover ? '（已内嵌歌词+封面）' : enriched.lyric ? '（已内嵌歌词）' : enriched.cover ? '（已内嵌封面）' : '')
+            : '（未内嵌标签）'
     }
     const targetPath = await resolveDownloadTargetUnique(plugin, buildSongFilename(song.artist, song.name, ext), 'qq')
     const ok = await writeAudioToVault(plugin.app, targetPath, data)
     if (!ok) return { ok: false, message: '写入失败，已还原原文件' }
     void plugin.scanLyricSongs()
-    return { ok: true, message: `已下载 QQ（${ext}）${formatBytes(data.byteLength)}：${targetPath}` }
+    return { ok: true, message: `已下载 QQ（${ext}）${formatBytes(data.byteLength)}：${targetPath}${metaNote}` }
 }
 
 // --- 酷狗 ---
@@ -826,17 +860,22 @@ async function downloadKugou(
     if (!audio || audio.byteLength < MIN_AUDIO_BYTES) return { ok: false, message: '下载失败（可能受限或接口变更）' }
 
     const isMp3 = looksLikeMp3(audio)
-    const ext = isMp3 ? 'mp3' : looksLikeM4a(audio) ? 'm4a' : 'mp3'
+    const isM4a = looksLikeM4a(audio)
+    const ext = isMp3 ? 'mp3' : isM4a ? 'm4a' : 'mp3'
     let data = audio
-    if (isMp3) {
-        const enriched = embedTagsIntoBytes(audio, { title: song.name, artist: song.artist, album: song.album })
-        if (enriched) data = enriched
+    let metaNote = ''
+    if (isMp3 || isM4a) {
+        const enriched = await enrichDownloadTags(song, audio, onProgress)
+        data = enriched.data
+        metaNote = enriched.embedded
+            ? (enriched.lyric && enriched.cover ? '（已内嵌歌词+封面）' : enriched.lyric ? '（已内嵌歌词）' : enriched.cover ? '（已内嵌封面）' : '')
+            : '（未内嵌标签）'
     }
     const targetPath = await resolveDownloadTargetUnique(plugin, buildSongFilename(song.artist, song.name, ext), 'kugou')
     const ok = await writeAudioToVault(plugin.app, targetPath, data)
     if (!ok) return { ok: false, message: '写入失败，已还原原文件' }
     void plugin.scanLyricSongs()
-    return { ok: true, message: `已下载酷狗（${ext}）${formatBytes(data.byteLength)}：${targetPath}` }
+    return { ok: true, message: `已下载酷狗（${ext}）${formatBytes(data.byteLength)}：${targetPath}${metaNote}` }
 }
 
 // --- 酷我 ---
@@ -874,17 +913,22 @@ async function downloadKuwo(
     if (!audio || audio.byteLength < MIN_AUDIO_BYTES) return { ok: false, message: '下载失败（可能版权受限）' }
 
     const isMp3 = looksLikeMp3(audio)
-    const ext = isMp3 ? 'mp3' : looksLikeM4a(audio) ? 'm4a' : 'mp3'
+    const isM4a = looksLikeM4a(audio)
+    const ext = isMp3 ? 'mp3' : isM4a ? 'm4a' : 'mp3'
     let data = audio
-    if (isMp3) {
-        const enriched = embedTagsIntoBytes(audio, { title: song.name, artist: song.artist, album: song.album })
-        if (enriched) data = enriched
+    let metaNote = ''
+    if (isMp3 || isM4a) {
+        const enriched = await enrichDownloadTags(song, audio, onProgress)
+        data = enriched.data
+        metaNote = enriched.embedded
+            ? (enriched.lyric && enriched.cover ? '（已内嵌歌词+封面）' : enriched.lyric ? '（已内嵌歌词）' : enriched.cover ? '（已内嵌封面）' : '')
+            : '（未内嵌标签）'
     }
     const targetPath = await resolveDownloadTargetUnique(plugin, buildSongFilename(song.artist, song.name, ext), 'kuwo')
     const ok = await writeAudioToVault(plugin.app, targetPath, data)
     if (!ok) return { ok: false, message: '写入失败，已还原原文件' }
     void plugin.scanLyricSongs()
-    return { ok: true, message: `已下载酷我（${quality}→${ext}）${formatBytes(data.byteLength)}：${targetPath}` }
+    return { ok: true, message: `已下载酷我（${quality}→${ext}）${formatBytes(data.byteLength)}：${targetPath}${metaNote}` }
 }
 
 /** MP3 判别：ID3 头 或 MPEG 帧同步；m4a 判别：ftyp box；flac 判别：`fLaC` 魔数（VIP 无损） */
@@ -930,15 +974,16 @@ export async function translateText(
     provider: TranslateProvider = 'auto',
     apiKey?: string,
     prompt?: string,
+    signal?: AbortSignal,
 ): Promise<string | null> {
     const textTrim = text.trim()
     if (!textTrim) return null
     // 显式指定 provider 时只试该源；auto 时按 Google → MyMemory 降级
-    if (provider === 'google') return await translateGoogle(textTrim, target) ?? await translateMyMemory(textTrim, target)
-    if (provider === 'mymemory') return await translateMyMemory(textTrim, target)
-    if (provider === 'deepseek') return await translateDeepseek(textTrim, target, apiKey ?? '', prompt) ?? await translateMyMemory(textTrim, target)
+    if (provider === 'google') return await translateGoogle(textTrim, target, signal) ?? await translateMyMemory(textTrim, target, signal)
+    if (provider === 'mymemory') return await translateMyMemory(textTrim, target, signal)
+    if (provider === 'deepseek') return await translateDeepseek(textTrim, target, apiKey ?? '', prompt) ?? await translateMyMemory(textTrim, target, signal)
     // auto：Google 优先，失败降级 MyMemory
-    return await translateGoogle(textTrim, target) ?? await translateMyMemory(textTrim, target)
+    return await translateGoogle(textTrim, target, signal) ?? await translateMyMemory(textTrim, target, signal)
 }
 
 /**
@@ -972,9 +1017,9 @@ export async function testTranslateConnection(
 }
 
 /** Google 翻译（translate_a/single；国内可能不可达） */
-async function translateGoogle(text: string, target: string): Promise<string | null> {
+async function translateGoogle(text: string, target: string, signal?: AbortSignal): Promise<string | null> {
     try {
-        const res = await httpGetTextChecked(buildGoogleTranslateUrl(text, target), { Referer: 'https://translate.google.com/' })
+        const res = await httpGetTextChecked(buildGoogleTranslateUrl(text, target), { Referer: 'https://translate.google.com/' }, signal)
         if (!res.failed) {
             const parsed = parseGoogleTranslateResponse(res.text)
             if (parsed) return parsed
@@ -984,9 +1029,9 @@ async function translateGoogle(text: string, target: string): Promise<string | n
 }
 
 /** MyMemory 翻译（国内可达，免 key） */
-async function translateMyMemory(text: string, target: string): Promise<string | null> {
+async function translateMyMemory(text: string, target: string, signal?: AbortSignal): Promise<string | null> {
     try {
-        const res = await httpGetTextChecked(buildMyMemoryUrl(text, target))
+        const res = await httpGetTextChecked(buildMyMemoryUrl(text, target), undefined, signal)
         if (!res.failed) {
             const parsed = parseMyMemoryResponse(res.text)
             if (parsed) return parsed
@@ -1012,7 +1057,9 @@ async function translateDeepseek(text: string, target: string, apiKey: string, p
 /** 逐行翻译歌词并拼成 `原文 | 译文` 双语 LRC；单行失败保留原文；全部失败返回 null。
  *  onProgress(done,total) 每批完成后回调供 UI 显示进度；isCancelled 回调返回 true / signal.aborted 时立即中断（保留已翻译部分）。
  *  apiKey/prompt 传给需要 Key 的翻译源（DeepSeek）；signal 用于中止在途 DeepSeek 请求（取消立即生效，不再等超时）。
- *  DeepSeek 走**整首一次翻译**（分批 ≤10 行），避免逐行请求时模型把每行当独立对话、回复「请提供歌词」等废话。 */
+ *  onReasoning 透传给 DeepSeek 流式请求：每收到新增思考文本（reasoning_content）即回调供 UI 实时显示。
+ *  DeepSeek 走**整首一次翻译**（分批 ≤10 行），避免逐行请求时模型把每行当独立对话、回复「请提供歌词」等废话。
+ *  元数据标签行（[ti:][ar:] 等）拆分后原样保留不翻译；DeepSeek 自定义提示词导致整首拒绝/垃圾输出时用默认提示词自动重试一次。 */
 export async function translateLyricText(
     lrc: string,
     target: string = 'zh-CN',
@@ -1022,24 +1069,31 @@ export async function translateLyricText(
     apiKey?: string,
     prompt?: string,
     signal?: AbortSignal,
+    onReasoning?: (text: string) => void,
 ): Promise<string | null> {
     const lines = parseLyricLines(lrc)
     if (lines.length === 0) return null
-    // 只翻译有实际歌词内容的行（跳过元数据/无正文）
-    const contentLines = lines.filter((l) => l.text.trim())
+    // 拆分可翻译行与元数据标签行（[ti:][ar:] 等原样保留不翻译）
+    const { content, meta } = splitLyricLines(lines)
+    const contentLines = content.map((c) => c.line)
     if (contentLines.length === 0) return null
     onProgress?.(0, contentLines.length)
 
     // DeepSeek：整首一次请求传完所有行（不分批），每行带编号、要求每行仅输出译文
     if (provider === 'deepseek') {
         if (!apiKey || !apiKey.trim()) return null
-        const translations = await translateDeepseekLyrics(contentLines, target, apiKey, prompt ?? '', signal)
-        const translated = contentLines.map((l, i) => ({
-            time: l.time,
-            text: l.text,
+        let translations = await translateDeepseekLyricsStreaming(contentLines, target, apiKey, prompt ?? '', signal, onReasoning)
+        // 自定义提示词导致模型整首未按格式返回（全部拒绝/垃圾输出）：用默认提示词自动重试一次（用户已取消则跳过）
+        if (prompt && prompt.trim() && isAllRejected(translations) && !signal?.aborted) {
+            translations = await translateDeepseekLyricsStreaming(contentLines, target, apiKey, '', signal, onReasoning)
+        }
+        const translated = content.map((c, i) => ({
+            time: c.line.time,
+            text: c.line.text,
             translation: translations[i] ?? undefined,
         }))
-        return translated.some((t) => t.translation) ? buildBilingualLrc(translated) : null
+        if (!translated.some((t) => t.translation)) return null
+        return buildBilingualLrc(mergeTranslatedRows(lines, meta, translated))
     }
 
     // 其他源（Google/MyMemory/auto）：逐行并发翻译（控制并发避免限流）
@@ -1051,34 +1105,39 @@ export async function translateLyricText(
         const results = await Promise.all(chunk.map(async (l) => ({
             time: l.time,
             text: l.text,
-            translation: (await translateText(l.text, target, provider, apiKey, prompt)) ?? undefined,
+            translation: (await translateText(l.text, target, provider, apiKey, prompt, signal)) ?? undefined,
         })))
         translated.push(...results)
         onProgress?.(Math.min(i + chunk.length, contentLines.length), contentLines.length)
     }
     // 全部中断且无任何翻译结果时返回 null；有部分结果则返回（未翻译行原样保留）
-    return translated.some((t) => t.translation) ? buildBilingualLrc(translated) : null
+    return translated.some((t) => t.translation) ? buildBilingualLrc(mergeTranslatedRows(lines, meta, translated)) : null
 }
 
-/** DeepSeek 整首歌词翻译：**一次请求传完所有行**（不分批），要求每行仅输出译文；返回按行对齐的译文数组（失败行 null）。
- *  单次请求期间无中间进度，等待反馈由 UI 层动画进度条模拟（20 秒内 0→99%，超时卡 99% 等真实结果）。
- *  signal 传入后请求走 httpPost 的可中止通道：取消/中断立即 abort 在途请求，不再等 60s 超时。 */
-async function translateDeepseekLyrics(
+/**
+ * DeepSeek 整首歌词翻译（流式版，v1.4.3）：`stream: true` 实时返回 reasoning_content/content 分片，
+ * onReasoning 每收到新增思考文本即回调（供 UI 实时显示）；结束用累计 content 走既有逐行解析。
+ * 模型不返回思考过程时 onReasoning 不触发（UI 保持隐藏，无副作用）。
+ */
+async function translateDeepseekLyricsStreaming(
     contentLines: Array<{ time: string; text: string }>,
     target: string,
     apiKey: string,
     prompt: string,
     signal?: AbortSignal,
+    onReasoning?: (text: string) => void,
 ): Promise<Array<string | null>> {
     if (signal?.aborted) return contentLines.map(() => null)
-    // 全部行一次请求：带编号便于模型对齐输出（也是默认提示词要求的格式）
     const numbered = contentLines.map((l, i) => `${i + 1}. ${l.text}`).join('\n')
-    const req = buildDeepseekRequest(numbered, apiKey, prompt, target)
+    const req = buildDeepseekRequest(numbered, apiKey, prompt, target, true)
     try {
-        const res = await httpPost(req.url, req.body, req.headers, signal)
-        if (res) {
-            const parsed = parseDeepseekResponse(new TextDecoder().decode(res.data))
-            if (parsed) return splitDeepseekLyricsResponse(parsed, contentLines.length)
+        const acc = new DeepseekSseAccumulator()
+        const res = await httpPost(req.url, req.body, req.headers, signal, 120000, (chunk) => {
+            const added = acc.push(chunk)
+            if (added && onReasoning) onReasoning(added)
+        })
+        if (res && acc.content.trim()) {
+            return splitDeepseekLyricsResponse(acc.content, contentLines.length)
         }
     } catch { /* 失败 → 全部判 null，保留原文 */ }
     return contentLines.map(() => null)
@@ -1142,24 +1201,26 @@ async function httpGet(
     depth: number,
     onProgress?: (received: number, total: number | null) => void,
     extraHeaders?: Record<string, string>,
+    signal?: AbortSignal,
+    timeoutMs = 60000,
 ): Promise<HttpResult | null> {
     try {
         const r = (window as any).require
         if (typeof r === 'function' && (r('https')?.request || r('http')?.request)) {
-            return await nodeGet(url, depth, onProgress, extraHeaders)
+            return await nodeGet(url, depth, onProgress, extraHeaders, signal, timeoutMs)
         }
     } catch { /* 回退 fetch */ }
-    return fetchGet(url, onProgress, extraHeaders)
+    return fetchGet(url, onProgress, extraHeaders, signal, timeoutMs)
 }
 
-async function httpGetText(url: string, extraHeaders?: Record<string, string>): Promise<string> {
-    const res = await httpGet(url, 0, undefined, extraHeaders)
+async function httpGetText(url: string, extraHeaders?: Record<string, string>, signal?: AbortSignal): Promise<string> {
+    const res = await httpGet(url, 0, undefined, extraHeaders, signal)
     return res ? new TextDecoder('utf-8').decode(res.data) : ''
 }
 
 /** GET 文本 + 失败标记：网络/HTTP 层失败（res 为 null）置 failed=true，供调用方区分「请求失败」与「返回空结果」 */
-async function httpGetTextChecked(url: string, extraHeaders?: Record<string, string>): Promise<{ text: string; failed: boolean }> {
-    const res = await httpGet(url, 0, undefined, extraHeaders)
+async function httpGetTextChecked(url: string, extraHeaders?: Record<string, string>, signal?: AbortSignal): Promise<{ text: string; failed: boolean }> {
+    const res = await httpGet(url, 0, undefined, extraHeaders, signal)
     if (!res) return { text: '', failed: true }
     return { text: new TextDecoder('utf-8').decode(res.data), failed: false }
 }
@@ -1169,6 +1230,8 @@ function nodeGet(
     depth: number,
     onProgress?: (received: number, total: number | null) => void,
     extraHeaders?: Record<string, string>,
+    signal?: AbortSignal,
+    timeoutMs = 60000,
 ): Promise<HttpResult | null> {
     return new Promise((resolve) => {
         if (depth > 6) { resolve(null); return }
@@ -1189,7 +1252,7 @@ function nodeGet(
             if (status >= 300 && status < 400 && loc) {
                 res.resume()
                 const next = /^https?:\/\//i.test(loc) ? loc : new URL(loc, url).toString()
-                resolve(nodeGet(next, depth + 1, onProgress, extraHeaders))
+                resolve(nodeGet(next, depth + 1, onProgress, extraHeaders, signal, timeoutMs))
                 return
             }
             if (status !== 200) { res.resume(); resolve(null); return }
@@ -1218,8 +1281,15 @@ function nodeGet(
                 onProgress?.(received, total)
             })
             res.on('end', () => resolve({ status, data: new Uint8Array(Buffer.concat(chunks)), headers }))
+            res.on('aborted', () => resolve(null))
+            res.on('error', () => resolve(null))
+            res.on('close', () => resolve(null))
         })
-        req.setTimeout(60000, () => req.destroy())
+        req.setTimeout(timeoutMs, () => req.destroy())
+        if (signal) {
+            if (signal.aborted) { req.destroy(); resolve(null); return }
+            signal.addEventListener('abort', () => req.destroy(), { once: true })
+        }
         req.on('error', () => resolve(null))
         req.end()
     })
@@ -1229,10 +1299,16 @@ async function fetchGet(
     url: string,
     onProgress?: (received: number, total: number | null) => void,
     extraHeaders?: Record<string, string>,
+    signal?: AbortSignal,
+    timeoutMs = 60000,
 ): Promise<HttpResult | null> {
     try {
         const controller = new AbortController()
-        const timer = setTimeout(() => controller.abort(), 60000)
+        const timer = setTimeout(() => controller.abort(), timeoutMs)
+        if (signal) {
+            if (signal.aborted) { clearTimeout(timer); return null }
+            signal.addEventListener('abort', () => controller.abort(), { once: true })
+        }
         try {
             const res = await fetch(url, { signal: controller.signal, headers: extraHeaders })
             if (!res.ok) return null
@@ -1272,14 +1348,16 @@ async function httpPost(
     body: string,
     extraHeaders?: Record<string, string>,
     signal?: AbortSignal,
+    timeoutMs = 60000,
+    onChunk?: (text: string) => void,
 ): Promise<HttpResult | null> {
     try {
         const r = (window as any).require
         if (typeof r === 'function' && (r('https')?.request || r('http')?.request)) {
-            return await nodePost(url, body, extraHeaders, signal)
+            return await nodePost(url, body, extraHeaders, signal, timeoutMs, onChunk)
         }
     } catch { /* 回退 fetch */ }
-    return fetchPost(url, body, extraHeaders, signal)
+    return fetchPost(url, body, extraHeaders, signal, timeoutMs, onChunk)
 }
 
 function nodePost(
@@ -1287,12 +1365,15 @@ function nodePost(
     body: string,
     extraHeaders?: Record<string, string>,
     signal?: AbortSignal,
+    timeoutMs = 60000,
+    onChunk?: (text: string) => void,
 ): Promise<HttpResult | null> {
     return new Promise((resolve) => {
         let u: URL
         try { u = new URL(url) } catch { resolve(null); return }
         const isHttps = u.protocol === 'https:'
         const mod = (window as any).require(isHttps ? 'https' : 'http')
+        const sseDecoder = new TextDecoder('utf-8')
         const req = mod.request({
             hostname: u.hostname,
             port: u.port || (isHttps ? 443 : 80),
@@ -1322,10 +1403,19 @@ function nodePost(
                 else if (Array.isArray(v)) headers[k.toLowerCase()] = v.join(',')
             }
             const chunks: Buffer[] = []
-            res.on('data', (c: Buffer) => chunks.push(c))
-            res.on('end', () => resolve({ status, data: new Uint8Array(Buffer.concat(chunks)), headers }))
+            res.on('data', (c: Buffer) => {
+                chunks.push(c)
+                if (onChunk) onChunk(sseDecoder.decode(c, { stream: true }))
+            })
+            res.on('end', () => {
+                if (onChunk) onChunk(sseDecoder.decode()) // 冲刷尾部未完整多字节字符
+                resolve({ status, data: new Uint8Array(Buffer.concat(chunks)), headers })
+            })
+            res.on('aborted', () => resolve(null))
+            res.on('error', () => resolve(null))
+            res.on('close', () => resolve(null))
         })
-        req.setTimeout(60000, () => req.destroy())
+        req.setTimeout(timeoutMs, () => req.destroy())
         // 外部取消：abort → destroy 请求（触发 error → resolve(null)），立即中断等待
         if (signal) {
             if (signal.aborted) { req.destroy(); resolve(null); return }
@@ -1341,10 +1431,12 @@ async function fetchPost(
     body: string,
     extraHeaders?: Record<string, string>,
     signal?: AbortSignal,
+    timeoutMs = 60000,
+    onChunk?: (text: string) => void,
 ): Promise<HttpResult | null> {
     try {
         const controller = new AbortController()
-        const timer = setTimeout(() => controller.abort(), 60000)
+        const timer = setTimeout(() => controller.abort(), timeoutMs)
         // 外部取消：abort → 内部 controller 同步 abort（fetch 抛 AbortError → catch 返回 null）
         if (signal) {
             if (signal.aborted) { clearTimeout(timer); return null }
@@ -1360,6 +1452,28 @@ async function fetchPost(
             if (!res.ok) return null
             const headers: Record<string, string> = {}
             res.headers.forEach((v, k) => { headers[k.toLowerCase()] = v })
+            // 流式（SSE）通道：onChunk 提供时逐块解码并实时回调，其余路径保持原逻辑
+            if (onChunk) {
+                if (!res.body) return null
+                const reader = res.body.getReader()
+                const decoder = new TextDecoder('utf-8')
+                const parts: Uint8Array[] = []
+                let received = 0
+                for (;;) {
+                    const { done, value } = await reader.read()
+                    if (done) break
+                    if (value) {
+                        parts.push(value)
+                        received += value.byteLength
+                        onChunk(decoder.decode(value, { stream: true }))
+                    }
+                }
+                onChunk(decoder.decode())
+                const merged = new Uint8Array(received)
+                let off = 0
+                for (const p of parts) { merged.set(p, off); off += p.byteLength }
+                return { status: res.status, data: merged, headers }
+            }
             return { status: res.status, data: new Uint8Array(await res.arrayBuffer()), headers }
         } finally { clearTimeout(timer) }
     } catch {

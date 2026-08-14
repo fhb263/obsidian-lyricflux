@@ -34,7 +34,7 @@ export interface Settings {
     translateProvider: 'auto' | 'google' | 'mymemory' | 'deepseek'
     /** DeepSeek API Key（v1.4.1）：选中 DeepSeek 翻译源时必填，仅存本地 data.json */
     translateDeepseekApiKey: string
-    /** DeepSeek 翻译提示词（v1.4.1）：默认「将歌词翻译为中文，输出 `原文 | 译文`」，可自定义 */
+    /** DeepSeek 翻译提示词（v1.4.3）：默认提示词适配多场景（元数据标签行 [ti:]/[ar:] 等不翻译原样保留、已有译文行只译原文、人名/语气词保留），可自定义 */
     translateDeepseekPrompt: string
 }
 export const DEFAULT_SETTINGS: Settings = {

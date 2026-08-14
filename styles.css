@@ -1336,7 +1336,6 @@ If your plugin does not need CSS, delete this file.
     transition: width 0.2s ease;
 }
 .lyrics-tag-translate-progress-text {
-    margin-top: 2px;
     font-size: var(--font-ui-smaller);
     color: var(--text-muted);
 }
@@ -1490,4 +1489,36 @@ If your plugin does not need CSS, delete this file.
 }
 .lyrics-translate-provider-name {
     font-weight: 600;
+}
+
+/* 歌词翻译进度（v1.4.3：DeepSeek 转圈 + 秒数，去假动画） */
+.lyrics-tag-translate-progress-text-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 2px;
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+}
+.lyrics-tag-translate-spinner {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    flex: none;
+    border: 2px solid var(--text-faint);
+    border-top-color: var(--interactive-accent);
+    border-radius: 50%;
+    animation: lyrics-tag-translate-spin 0.8s linear infinite;
+}
+.lyrics-tag-translate-spinner.lyrics-tag-translate-progress-hidden {
+    display: none;
+}
+@keyframes lyrics-tag-translate-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+.lyrics-tag-translate-timeout-hint {
+    margin-top: 4px;
+    font-size: var(--font-ui-smaller);
+    color: var(--text-faint);
 }

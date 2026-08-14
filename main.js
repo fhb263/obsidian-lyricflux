@@ -11556,11 +11556,322 @@ function findDataText(b, start, end) {
   return null;
 }
 function extractMp4Lyrics(bytes) {
+  return extractMp4Text(bytes, "\xA9lyr");
+}
+function extractMp4Text(bytes, name) {
   try {
     const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
     if (b.length < 100)
       return null;
-    return findAtomText(b, 0, b.length, "\xA9lyr");
+    return findAtomText(b, 0, b.length, name);
+  } catch (e) {
+    return null;
+  }
+}
+function concatBytes(...parts) {
+  let len = 0;
+  for (const p of parts)
+    len += p.length;
+  const out = new Uint8Array(len);
+  let off = 0;
+  for (const p of parts) {
+    out.set(p, off);
+    off += p.length;
+  }
+  return out;
+}
+function atomBytes(name, payload) {
+  const out = new Uint8Array(8 + payload.length);
+  new DataView(out.buffer).setUint32(0, out.length);
+  for (let i = 0; i < 4; i++)
+    out[4 + i] = name.charCodeAt(i);
+  out.set(payload, 8);
+  return out;
+}
+function dataBoxBytes(type, payload) {
+  const head = new Uint8Array(8);
+  new DataView(head.buffer).setUint32(4, type);
+  return atomBytes("data", concatBytes(head, payload));
+}
+function textTagAtom(name, text) {
+  return atomBytes(name, dataBoxBytes(1, new TextEncoder().encode(text)));
+}
+function coverTagAtom(data) {
+  const isPng = data.length >= 4 && data[0] === 137 && data[1] === 80 && data[2] === 78 && data[3] === 71;
+  const isJpeg = data.length >= 2 && data[0] === 255 && data[1] === 216;
+  return atomBytes("covr", dataBoxBytes(isPng ? 14 : isJpeg ? 13 : 13, data));
+}
+function buildHdlr() {
+  const enc = new TextEncoder();
+  return atomBytes("hdlr", concatBytes(
+    new Uint8Array(8),
+    enc.encode("mdir"),
+    new Uint8Array(12),
+    enc.encode("appl"),
+    new Uint8Array(1)
+  ));
+}
+function walkAtoms(b, start, end) {
+  const out = [];
+  let offset = start;
+  while (offset + 8 <= end) {
+    let size = readUInt32BE(b, offset);
+    const name = atomName(b, offset + 4);
+    let headerLen = 8;
+    if (size === 1) {
+      if (offset + 16 > end)
+        break;
+      size = readUInt32BE(b, offset + 8) * 4294967296 + readUInt32BE(b, offset + 12);
+      headerLen = 16;
+    } else if (size === 0) {
+      size = end - offset;
+    }
+    if (size < headerLen || offset + size > end)
+      break;
+    out.push({ start: offset, end: offset + size, name, payload: offset + headerLen });
+    offset += size;
+  }
+  return out;
+}
+function buildNewIlst(b, ilstRef, tags) {
+  const provided = /* @__PURE__ */ new Map();
+  if (tags.title !== void 0)
+    provided.set("\xA9nam", textTagAtom("\xA9nam", tags.title));
+  if (tags.artist !== void 0)
+    provided.set("\xA9ART", textTagAtom("\xA9ART", tags.artist));
+  if (tags.album !== void 0)
+    provided.set("\xA9alb", textTagAtom("\xA9alb", tags.album));
+  if (tags.lyrics !== void 0)
+    provided.set("\xA9lyr", textTagAtom("\xA9lyr", tags.lyrics));
+  if (tags.cover !== void 0)
+    provided.set("covr", tags.cover === null ? null : coverTagAtom(tags.cover));
+  const children2 = [];
+  if (ilstRef) {
+    for (const child of walkAtoms(b, ilstRef.payload, ilstRef.end)) {
+      if (!provided.has(child.name))
+        children2.push(b.slice(child.start, child.end));
+    }
+  }
+  for (const [, atom] of provided) {
+    if (atom !== null)
+      children2.push(atom);
+  }
+  return atomBytes("ilst", concatBytes(...children2));
+}
+function keepUdtaChildren(b, udtaRef, metaRef) {
+  const out = [];
+  for (const c of walkAtoms(b, udtaRef.payload, udtaRef.end)) {
+    if (metaRef && c.start === metaRef.start)
+      continue;
+    out.push(b.slice(c.start, c.end));
+  }
+  return out;
+}
+function patchChunkOffsets(b, delta) {
+  if (delta === 0)
+    return;
+  const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  const walk = (start, end) => {
+    let offset = start;
+    while (offset + 8 <= end) {
+      let size = dv.getUint32(offset);
+      const name = String.fromCharCode(b[offset + 4], b[offset + 5], b[offset + 6], b[offset + 7]);
+      let headerLen = 8;
+      if (size === 1) {
+        if (offset + 16 > end)
+          return;
+        size = dv.getUint32(offset + 8) * 4294967296 + dv.getUint32(offset + 12);
+        headerLen = 16;
+      } else if (size === 0) {
+        size = end - offset;
+      }
+      if (size < headerLen || offset + size > end)
+        return;
+      const payload = offset + headerLen;
+      if (name === "stco") {
+        const count = dv.getUint32(payload + 4);
+        if (payload + 8 + count * 4 > offset + size)
+          return;
+        for (let i = 0; i < count; i++) {
+          const p = payload + 8 + i * 4;
+          dv.setUint32(p, dv.getUint32(p) + delta >>> 0);
+        }
+      } else if (name === "co64") {
+        const count = dv.getUint32(payload + 4);
+        if (payload + 8 + count * 8 > offset + size)
+          return;
+        for (let i = 0; i < count; i++) {
+          const p = payload + 8 + i * 8;
+          let lo = dv.getUint32(p + 4);
+          let hi = dv.getUint32(p);
+          lo += delta;
+          if (lo > 4294967295) {
+            hi += 1;
+            lo -= 4294967296;
+          } else if (lo < 0) {
+            hi -= 1;
+            lo += 4294967296;
+          }
+          dv.setUint32(p, hi);
+          dv.setUint32(p + 4, lo);
+        }
+      } else if (name === "moov" || name === "trak" || name === "mdia" || name === "minf" || name === "stbl" || name === "edts" || name === "dinf" || name === "udta" || name === "meta") {
+        const childStart = name === "meta" ? payload + 4 : payload;
+        if (childStart < offset + size)
+          walk(childStart, offset + size);
+      }
+      offset += size;
+    }
+  };
+  walk(0, b.length);
+}
+function writeMp4Tags(bytes, tags) {
+  try {
+    const b = bytes;
+    if (b.length < 100)
+      return null;
+    const top = walkAtoms(b, 0, b.length);
+    const moov = top.find((a) => a.name === "moov");
+    const mdat = top.find((a) => a.name === "mdat");
+    if (!moov || !mdat)
+      return null;
+    let udtaRef = null;
+    let metaRef = null;
+    let ilstRef = null;
+    for (const kid of walkAtoms(b, moov.payload, moov.end)) {
+      if (kid.name === "udta" && !udtaRef) {
+        udtaRef = kid;
+        for (const m of walkAtoms(b, kid.payload, kid.end)) {
+          if (m.name === "meta" && !metaRef) {
+            metaRef = m;
+            for (const i of walkAtoms(b, m.payload + 4, m.end)) {
+              if (i.name === "ilst") {
+                ilstRef = i;
+                break;
+              }
+            }
+            break;
+          }
+        }
+      }
+    }
+    const newIlst = buildNewIlst(b, ilstRef, tags);
+    let newUdta;
+    if (metaRef) {
+      const metaFlags = b.slice(metaRef.payload, metaRef.payload + 4);
+      const keepMeta = [];
+      for (const m of walkAtoms(b, metaRef.payload + 4, metaRef.end)) {
+        if (!ilstRef || m.start !== ilstRef.start)
+          keepMeta.push(b.slice(m.start, m.end));
+      }
+      const newMeta = atomBytes("meta", concatBytes(metaFlags, ...keepMeta, newIlst));
+      newUdta = atomBytes("udta", concatBytes(...keepUdtaChildren(b, udtaRef, metaRef), newMeta));
+    } else {
+      const newMeta = atomBytes("meta", concatBytes(new Uint8Array(4), buildHdlr(), newIlst));
+      newUdta = udtaRef ? atomBytes("udta", concatBytes(...keepUdtaChildren(b, udtaRef, null), newMeta)) : atomBytes("udta", newMeta);
+    }
+    const keepMoov = [];
+    for (const k of walkAtoms(b, moov.payload, moov.end)) {
+      if (!udtaRef || k.start !== udtaRef.start)
+        keepMoov.push(b.slice(k.start, k.end));
+    }
+    const newMoov = atomBytes("moov", concatBytes(...keepMoov, newUdta));
+    if (newMoov.length > 4294967295)
+      return null;
+    const oldMoovLen = moov.end - moov.start;
+    const delta = moov.start < mdat.start ? newMoov.length - oldMoovLen : 0;
+    const out = concatBytes(b.slice(0, moov.start), newMoov, b.slice(moov.end));
+    if (delta !== 0)
+      patchChunkOffsets(out, delta);
+    return out;
+  } catch (e) {
+    return null;
+  }
+}
+function extractMp4Duration(bytes) {
+  try {
+    const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+    if (b.length < 100)
+      return null;
+    let mvhd = null;
+    for (const top of walkAtoms(b, 0, b.length)) {
+      if (top.name !== "moov")
+        continue;
+      for (const k of walkAtoms(b, top.payload, top.end)) {
+        if (k.name === "mvhd") {
+          mvhd = k;
+          break;
+        }
+      }
+      break;
+    }
+    if (!mvhd)
+      return null;
+    const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+    const version = b[mvhd.payload];
+    const timescale = dv.getUint32(mvhd.payload + 12);
+    if (timescale === 0)
+      return null;
+    const duration = version === 1 ? dv.getUint32(mvhd.payload + 20) * 4294967296 + dv.getUint32(mvhd.payload + 24) : dv.getUint32(mvhd.payload + 16);
+    if (duration <= 0)
+      return null;
+    return duration / timescale;
+  } catch (e) {
+    return null;
+  }
+}
+function findAtomData(b, start, end, target) {
+  let offset = start;
+  while (offset + 8 <= end) {
+    let size = readUInt32BE(b, offset);
+    const name = atomName(b, offset + 4);
+    let headerLen = 8;
+    if (size === 1) {
+      if (offset + 16 > end)
+        return null;
+      size = readUInt32BE(b, offset + 8) * 4294967296 + readUInt32BE(b, offset + 12);
+      headerLen = 16;
+    } else if (size === 0) {
+      size = end - offset;
+    }
+    if (size < headerLen || offset + size > end)
+      return null;
+    const payload = offset + headerLen;
+    const childEnd = offset + size;
+    if (name === target) {
+      const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+      let d = payload;
+      while (d + 8 <= childEnd) {
+        const dsize = readUInt32BE(b, d);
+        if (dsize < 8 || d + dsize > childEnd)
+          return null;
+        if (atomName(b, d + 4) === "data") {
+          const type = dv.getUint32(d + 12);
+          return { type, payload: b.slice(d + 16, d + dsize) };
+        }
+        d += dsize;
+      }
+      return null;
+    }
+    if (name === "moov" || name === "udta" || name === "ilst" || name === "meta") {
+      const childStart = name === "meta" ? payload + 4 : payload;
+      const found = findAtomData(b, childStart, childEnd, target);
+      if (found)
+        return found;
+    }
+    offset = childEnd;
+  }
+  return null;
+}
+function extractMp4Cover(bytes) {
+  try {
+    const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+    if (b.length < 100)
+      return null;
+    const found = findAtomData(b, 0, b.length, "covr");
+    if (!found || found.payload.length === 0)
+      return null;
+    return { mime: found.type === 14 ? "image/png" : "image/jpeg", data: found.payload };
   } catch (e) {
     return null;
   }
@@ -12215,8 +12526,17 @@ function formatDurationColon(seconds) {
 function isWinAbsolute(p) {
   return p.length >= 3 && p.charCodeAt(1) === 58 && (p.charCodeAt(2) === 92 || p.charCodeAt(2) === 47);
 }
-function isMp3Path(p) {
-  return /\.mp3$/i.test(p);
+function isEditableAudioPath(p) {
+  return /\.(mp3|m4a)$/i.test(p);
+}
+function toMp4TagSet(tags) {
+  return {
+    title: tags.title,
+    artist: tags.artist,
+    album: tags.album,
+    lyrics: tags.lyrics,
+    cover: tags.cover !== void 0 && tags.cover !== null ? tags.cover.data : tags.cover
+  };
 }
 async function resolveAudioSource(app, notePath) {
   var _a, _b, _c;
@@ -12238,15 +12558,15 @@ async function resolveAudioSource(app, notePath) {
   const link = raw.match(/\[\[(?<link>[^\]]+)\]\]/);
   if ((_c = link == null ? void 0 : link.groups) == null ? void 0 : _c.link) {
     const name = link.groups.link.trim();
-    if (!isMp3Path(name))
+    if (!isEditableAudioPath(name))
       return null;
     const file = app.metadataCache.getFirstLinkpathDest(name, notePath);
     return file instanceof import_obsidian7.TFile ? { type: "vault", file } : null;
   }
   if (isWinAbsolute(raw)) {
-    return isMp3Path(raw) ? { type: "external", path: raw } : null;
+    return isEditableAudioPath(raw) ? { type: "external", path: raw } : null;
   }
-  if (isMp3Path(raw)) {
+  if (isEditableAudioPath(raw)) {
     const file = app.vault.getAbstractFileByPath(raw);
     return file instanceof import_obsidian7.TFile ? { type: "vault", file } : null;
   }
@@ -12362,6 +12682,67 @@ async function readMp3TagHead(app, source) {
     return null;
   }
 }
+async function readM4aTagHead(app, source) {
+  try {
+    const fs = window.require("fs");
+    let fullPath = null;
+    if (source.type === "external" && source.path) {
+      fullPath = source.path;
+    } else if (source.type === "vault" && source.file) {
+      const adapter = app.vault.adapter;
+      fullPath = typeof (adapter == null ? void 0 : adapter.getFullPath) === "function" ? adapter.getFullPath(source.file.path) : null;
+    }
+    if (!fullPath)
+      return null;
+    const fd = await fs.promises.open(fullPath, "r");
+    try {
+      const stat = await fd.stat();
+      const WINDOW = 64 * 1024;
+      const findMoov = (buf2, base) => {
+        let offset = 0;
+        while (offset + 8 <= buf2.length) {
+          let size = (buf2[offset] << 24 | buf2[offset + 1] << 16 | buf2[offset + 2] << 8 | buf2[offset + 3]) >>> 0;
+          const name = String.fromCharCode(buf2[offset + 4], buf2[offset + 5], buf2[offset + 6], buf2[offset + 7]);
+          let headerLen = 8;
+          if (size === 1) {
+            if (offset + 16 > buf2.length)
+              break;
+            size = (buf2[offset + 8] << 24 | buf2[offset + 9] << 16 | buf2[offset + 10] << 8 | buf2[offset + 11]) >>> 0 * 4294967296 + (buf2[offset + 12] << 24 | buf2[offset + 13] << 16 | buf2[offset + 14] << 8 | buf2[offset + 15]) >>> 0;
+            headerLen = 16;
+          } else if (size === 0) {
+            size = buf2.length - offset;
+          }
+          if (size < headerLen)
+            break;
+          if (name === "moov")
+            return { start: base + offset, size };
+          offset += size;
+        }
+        return null;
+      };
+      const headLen = Math.min(WINDOW, stat.size);
+      const head = Buffer.alloc(headLen);
+      await fd.read(head, 0, headLen, 0);
+      let moov = findMoov(head, 0);
+      if (!moov && stat.size > WINDOW) {
+        const tail = Buffer.alloc(WINDOW);
+        await fd.read(tail, 0, WINDOW, stat.size - WINDOW);
+        moov = findMoov(tail, stat.size - WINDOW);
+      }
+      if (!moov)
+        return null;
+      if (moov.size < 8 || moov.size > 8e6)
+        return null;
+      const buf = Buffer.alloc(moov.size);
+      await fd.read(buf, 0, moov.size, moov.start);
+      return new Uint8Array(buf);
+    } finally {
+      await fd.close();
+    }
+  } catch (e) {
+    return null;
+  }
+}
 function buildTagPatch(tags) {
   const patch = {};
   if (tags.title !== void 0)
@@ -12383,6 +12764,8 @@ function buildTagPatch(tags) {
 }
 function embedTagsIntoBytes(bytes, tags) {
   try {
+    if (detectAudioContainer(bytes) === "m4a")
+      return writeMp4Tags(bytes, toMp4TagSet(tags));
     const updated = NodeID3.update(buildTagPatch(tags), Buffer.from(bytes));
     return updated instanceof Uint8Array ? updated : null;
   } catch (e) {
@@ -12418,12 +12801,63 @@ async function writeMp3Tags(app, source, tags) {
     return false;
   }
 }
+async function writeAudioTags(app, source, tags) {
+  const buf = await readFileBuffer(app, source);
+  if (!buf || buf.byteLength === 0)
+    return false;
+  const container = detectAudioContainer(buf);
+  if (container === "flac" || container === "ogg")
+    return false;
+  if (container !== "m4a")
+    return writeMp3Tags(app, source, tags);
+  const original = new Uint8Array(buf);
+  try {
+    const updated = writeMp4Tags(original, toMp4TagSet(tags));
+    if (!updated)
+      return false;
+    if (!await writeFileBuffer(app, source, updated)) {
+      await writeFileBuffer(app, source, original);
+      return false;
+    }
+    const verify = await readFileBuffer(app, source);
+    const lengthOk = !!verify && verify.byteLength === updated.byteLength && verify.byteLength > 512;
+    const readable = verify ? await readGenericTags(verify) !== null : false;
+    if (!lengthOk || !readable) {
+      await writeFileBuffer(app, source, original);
+      return false;
+    }
+    return true;
+  } catch (e) {
+    await writeFileBuffer(app, source, original);
+    return false;
+  }
+}
 function parseTagsForPlugin(bytes) {
   return parseTags(bytes);
+}
+function parseM4aTags(bytes) {
+  const out = {};
+  const title = extractMp4Text(bytes, "\xA9nam");
+  const artist = extractMp4Text(bytes, "\xA9ART");
+  const album = extractMp4Text(bytes, "\xA9alb");
+  const lyrics = extractMp4Text(bytes, "\xA9lyr");
+  const cover = extractMp4Cover(bytes);
+  if (title)
+    out.title = title;
+  if (artist)
+    out.artist = artist;
+  if (album)
+    out.album = album;
+  if (lyrics)
+    out.lyrics = lyrics;
+  if (cover)
+    out.cover = cover;
+  return title || artist || album || lyrics || cover ? out : null;
 }
 async function readGenericTags(bytes) {
   const isFlac = bytes.length >= 4 && bytes[0] === 102 && bytes[1] === 76 && bytes[2] === 97 && bytes[3] === 67;
   const isOgg = bytes.length >= 4 && bytes[0] === 79 && bytes[1] === 103 && bytes[2] === 103 && bytes[3] === 83;
+  const isM4a = detectAudioContainer(bytes) === "m4a";
   if (isOgg) {
     const ogg = extractOggTags(bytes);
     if (!ogg)
@@ -12469,10 +12903,47 @@ async function readGenericTags(bytes) {
               data: new Uint8Array(pic.data instanceof Uint8Array ? pic.data : Array.from(pic.data))
             };
           }
+          if (isM4a) {
+            if (typeof out.title !== "string" || !out.title) {
+              const t2 = extractMp4Text(bytes, "\xA9nam");
+              if (t2)
+                out.title = t2;
+            }
+            if (typeof out.artist !== "string" || !out.artist) {
+              const t2 = extractMp4Text(bytes, "\xA9ART");
+              if (t2)
+                out.artist = t2;
+            }
+            if (typeof out.album !== "string" || !out.album) {
+              const t2 = extractMp4Text(bytes, "\xA9alb");
+              if (t2)
+                out.album = t2;
+            }
+            if (typeof out.lyrics !== "string" || !out.lyrics) {
+              const t2 = extractMp4Text(bytes, "\xA9lyr");
+              if (t2)
+                out.lyrics = t2;
+            }
+          }
           resolve(out);
         },
         onError: () => {
-          if (isFlac) {
+          if (isM4a) {
+            const out = {};
+            const title = extractMp4Text(bytes, "\xA9nam");
+            const artist = extractMp4Text(bytes, "\xA9ART");
+            const album = extractMp4Text(bytes, "\xA9alb");
+            const lyrics = extractMp4Text(bytes, "\xA9lyr");
+            if (title)
+              out.title = title;
+            if (artist)
+              out.artist = artist;
+            if (album)
+              out.album = album;
+            if (lyrics)
+              out.lyrics = lyrics;
+            resolve(out);
+          } else if (isFlac) {
             const lyrics = extractFlacLyrics(bytes);
             resolve(lyrics ? { lyrics } : null);
           } else {
@@ -12583,14 +13054,17 @@ function parseMyMemoryResponse(raw) {
   }
 }
 var DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions";
-var DEFAULT_DEEPSEEK_PROMPT = "\u4F60\u662F\u4E13\u4E1A\u7684\u6B4C\u8BCD\u7FFB\u8BD1\u52A9\u624B\u3002\u4E0B\u9762\u662F\u7528\u6237\u63D0\u4F9B\u7684\u6B4C\u8BCD\uFF0C\u6BCF\u884C\u524D\u9762\u6709\u6570\u5B57\u7F16\u53F7\u3002\u8BF7\u628A\u6BCF\u4E00\u884C\u7FFB\u8BD1\u4E3A\u4E2D\u6587\uFF0C\u6BCF\u884C\u4EC5\u8F93\u51FA\u8BE5\u884C\u7684\u8BD1\u6587\uFF0C\u4E00\u884C\u5BF9\u5E94\u4E00\u884C\uFF0C\u7528\u6362\u884C\u5206\u9694\u3002\u5982\u679C\u67D0\u884C\u539F\u6587\u5DF2\u7ECF\u5305\u542B\u8BD1\u6587\uFF08\u542B\u7AD6\u7EBF\u5206\u9694\uFF09\uFF0C\u8BF7\u53EA\u7FFB\u8BD1\u5176\u4E2D\u975E\u4E2D\u6587\u7684\u539F\u6587\u90E8\u5206\u3002\u4E0D\u8981\u8F93\u51FA\u7F16\u53F7\u3001\u4E0D\u8981\u91CD\u590D\u539F\u6587\u3001\u4E0D\u8981\u52A0\u4EFB\u4F55\u5206\u9694\u7B26\u6216\u683C\u5F0F\u6807\u8BB0\uFF0C\u53EA\u8F93\u51FA\u7FFB\u8BD1\u7ED3\u679C\uFF0C\u4E0D\u8981\u4EFB\u4F55\u89E3\u91CA\u3002";
-function buildDeepseekRequest(text, apiKey, prompt, target = "zh-CN") {
+var DEFAULT_DEEPSEEK_PROMPT = "\u4F60\u662F\u4E13\u4E1A\u7684\u6B4C\u8BCD\u7FFB\u8BD1\u52A9\u624B\u3002\u4E0B\u9762\u662F\u7528\u6237\u63D0\u4F9B\u7684\u6B4C\u8BCD\uFF0C\u6BCF\u884C\u524D\u9762\u6709\u6570\u5B57\u7F16\u53F7\uFF0C\u8BF7\u628A\u6BCF\u884C\u6B4C\u8BCD\u7FFB\u8BD1\u6210\u76EE\u6807\u8BED\u8A00\uFF08\u901A\u5E38\u4E3A\u4E2D\u6587\uFF09\u3002\n\u89C4\u5219\uFF1A\n1. \u6BCF\u884C\u4EC5\u8F93\u51FA\u8BE5\u884C\u7684\u8BD1\u6587\uFF0C\u4E00\u884C\u5BF9\u5E94\u4E00\u884C\uFF0C\u7528\u6362\u884C\u5206\u9694\uFF0C\u4E0D\u8981\u8F93\u51FA\u7F16\u53F7\uFF1B\n2. \u5143\u6570\u636E/\u6807\u7B7E\u884C\uFF08\u5F62\u5982 [ti:\u6807\u9898]\u3001[ar:\u6B4C\u624B]\u3001[al:\u4E13\u8F91]\u3001[by:\u4F5C\u8005]\u3001[offset:\u504F\u79FB] \u7B49\u65B9\u62EC\u53F7\u6807\u7B7E\uFF09\u4E0D\u7FFB\u8BD1\uFF0C\u539F\u6837\u8F93\u51FA\uFF1B\n3. \u67D0\u884C\u539F\u6587\u5DF2\u542B\u8BD1\u6587\uFF08\u7AD6\u7EBF\u5206\u9694\u300C\u539F\u6587 | \u8BD1\u6587\u300D\uFF09\u65F6\uFF0C\u53EA\u7FFB\u8BD1\u5176\u4E2D\u975E\u4E2D\u6587\u7684\u539F\u6587\u90E8\u5206\uFF1B\n4. \u4EBA\u540D\u3001\u8BED\u6C14\u8BCD\u3001\u821E\u53F0\u63D0\u793A\u3001\u7EAF\u6570\u5B57\u3001\u91CD\u590D\u6BB5\u6807\u8BB0\u7B49\u65E0\u6CD5\u7FFB\u8BD1\u7684\u5185\u5BB9\uFF0C\u4FDD\u7559\u539F\u6587\uFF1B\n5. \u4E0D\u8981\u91CD\u590D\u539F\u6587\u3001\u4E0D\u8981\u52A0\u4EFB\u4F55\u5206\u9694\u7B26\u6216\u683C\u5F0F\u6807\u8BB0\uFF0C\u53EA\u8F93\u51FA\u7FFB\u8BD1\u7ED3\u679C\uFF0C\u4E0D\u8981\u4EFB\u4F55\u89E3\u91CA\u3002";
+function buildDeepseekRequest(text, apiKey, prompt, target = "zh-CN", stream = false) {
   const targetName = target === "zh-CN" ? "\u4E2D\u6587" : target === "en" ? "\u82F1\u6587" : target === "ja" ? "\u65E5\u8BED" : target === "ko" ? "\u97E9\u8BED" : target;
   const sys = "You are a professional lyrics translator.";
   const userMsg = prompt && prompt.trim() ? `${prompt.trim()}
 
 \u6B4C\u8BCD\uFF1A
-${text}` : `\u628A\u4E0B\u9762\u6B4C\u8BCD\u9010\u884C\u7FFB\u8BD1\u6210${targetName}\uFF0C\u6BCF\u884C\u6309\u300C\u539F\u6587 | \u8BD1\u6587\u300D\u8F93\u51FA\uFF1A
+${text}` : `${DEFAULT_DEEPSEEK_PROMPT}
+
+\u76EE\u6807\u8BED\u8A00\uFF1A${targetName}
+\u6B4C\u8BCD\uFF1A
 ${text}`;
   const body = JSON.stringify({
     // v1.4.2 默认使用 deepseek-v4-flash（设置页「翻译 → DeepSeek」有注释说明）
@@ -12600,7 +13074,7 @@ ${text}`;
       { role: "user", content: userMsg }
     ],
     temperature: 0.3,
-    stream: false
+    stream
   });
   return {
     url: DEEPSEEK_API_URL,
@@ -12663,6 +13137,66 @@ function splitDeepseekLyricsResponse(raw, expected) {
     out.push(null);
   return out.slice(0, expected);
 }
+function parseDeepseekSseData(rawLine) {
+  var _a, _b, _c, _d, _e;
+  const trimmed = rawLine.trim();
+  if (!trimmed.startsWith("data:"))
+    return null;
+  const payload = trimmed.slice(5).trim();
+  if (!payload || payload === "[DONE]")
+    return { done: true };
+  try {
+    const data = JSON.parse(payload);
+    if (((_b = (_a = data == null ? void 0 : data.choices) == null ? void 0 : _a[0]) == null ? void 0 : _b.finish_reason) === "stop")
+      return { done: true };
+    const delta = (_d = (_c = data == null ? void 0 : data.choices) == null ? void 0 : _c[0]) == null ? void 0 : _d.delta;
+    if (!delta)
+      return null;
+    const out = {};
+    const reasoning = (_e = delta.reasoning_content) != null ? _e : delta.reasoning;
+    if (typeof reasoning === "string" && reasoning)
+      out.reasoning = reasoning;
+    if (typeof delta.content === "string" && delta.content)
+      out.content = delta.content;
+    return Object.keys(out).length > 0 ? out : null;
+  } catch (e) {
+    return null;
+  }
+}
+var DeepseekSseAccumulator = class {
+  constructor() {
+    this.buffer = "";
+    this.reasoning = "";
+    this.content = "";
+    this.done = false;
+  }
+  /** 喂入一段流式文本，返回本次新增的 reasoning 文本（供实时显示）；content 累计供结束后解析 */
+  push(chunk2) {
+    this.buffer += chunk2;
+    let newReasoning = "";
+    let nl;
+    while ((nl = this.buffer.indexOf("\n")) >= 0) {
+      const line = this.buffer.slice(0, nl).trim();
+      this.buffer = this.buffer.slice(nl + 1);
+      if (!line)
+        continue;
+      const parsed = parseDeepseekSseData(line);
+      if (!parsed)
+        continue;
+      if (parsed.done) {
+        this.done = true;
+        continue;
+      }
+      if (parsed.reasoning) {
+        this.reasoning += parsed.reasoning;
+        newReasoning += parsed.reasoning;
+      }
+      if (parsed.content)
+        this.content += parsed.content;
+    }
+    return newReasoning;
+  }
+};
 function parseLyricLines(lrc) {
   var _a;
   const lines = [];
@@ -12685,8 +13219,6 @@ function parseLyricLines(lrc) {
     if (!stamps.length && !text)
       continue;
     if (!stamps.length) {
-      if (/^\[[a-zA-Z]+:/.test(line))
-        continue;
       lines.push({ time: "", text: line });
     } else {
       for (const stamp of stamps) {
@@ -12712,6 +13244,37 @@ function buildBilingualLrc(lines) {
   }
   return out.join("\n");
 }
+function isMetaTagLine(line) {
+  return !line.time && /^\[[a-zA-Z]+:/.test(line.text.trim());
+}
+function splitLyricLines(lines) {
+  const content = [];
+  const meta = [];
+  lines.forEach((line, idx) => {
+    if (!line.text.trim())
+      return;
+    if (isMetaTagLine(line))
+      meta.push({ line, idx });
+    else
+      content.push({ line, idx });
+  });
+  return { content, meta };
+}
+function mergeTranslatedRows(lines, meta, translated) {
+  const metaIdx = new Set(meta.map((m) => m.idx));
+  const out = [];
+  let ti = 0;
+  lines.forEach((l, idx) => {
+    if (metaIdx.has(idx))
+      out.push({ time: l.time, text: l.text, translation: l.text });
+    else if (l.text.trim() && ti < translated.length)
+      out.push(translated[ti++]);
+  });
+  return out;
+}
+function isAllRejected(translations) {
+  return translations.length > 0 && translations.every((t) => t === null);
+}
 
 // src/tagSize.ts
 var TEXT_FRAME_OVERHEAD = 11;
@@ -12727,6 +13290,16 @@ var apicFrameBytes = (cover) => {
 };
 function estimateEmbeddedSize(tags) {
   return textFrameBytes(tags.title) + textFrameBytes(tags.artist) + textFrameBytes(tags.album) + textFrameBytes(tags.year) + langFrameBytes(tags.comment) + langFrameBytes(tags.lyrics) + apicFrameBytes(tags.cover);
+}
+var M4A_FIXED_OVERHEAD = 40;
+var m4aTextAtomBytes = (text) => text ? 8 + 8 + utf8Len(text) : 0;
+var m4aCoverAtomBytes = (cover) => {
+  if (!cover || cover.data.byteLength === 0)
+    return 0;
+  return 8 + 8 + cover.data.byteLength;
+};
+function estimateM4aEmbeddedSize(tags) {
+  return M4A_FIXED_OVERHEAD + m4aTextAtomBytes(tags.title) + m4aTextAtomBytes(tags.artist) + m4aTextAtomBytes(tags.album) + m4aTextAtomBytes(tags.lyrics) + m4aCoverAtomBytes(tags.cover);
 }
 function formatBytes(bytes) {
   const b = Math.max(0, Math.round(bytes));
@@ -14613,6 +15186,23 @@ async function downloadAudioFrom(url, onProgress, label) {
     return null;
   return res.data;
 }
+async function enrichDownloadTags(song, audio, onProgress) {
+  onProgress == null ? void 0 : onProgress(null, "\u6B63\u5728\u83B7\u53D6\u6B4C\u8BCD\u4E0E\u5C01\u9762\u2026");
+  const [lyric, cover] = await Promise.all([
+    fetchSongLyrics(song).catch(() => null),
+    song.coverUrl ? downloadImage(song.coverUrl).catch(() => null) : Promise.resolve(null)
+  ]);
+  onProgress == null ? void 0 : onProgress(null, "\u6B63\u5728\u5185\u5D4C\u6807\u7B7E\u2026");
+  const tags = {
+    title: song.name,
+    artist: song.artist,
+    album: song.album,
+    lyrics: lyric != null ? lyric : void 0,
+    cover: cover != null ? cover : void 0
+  };
+  const enriched = embedTagsIntoBytes(audio, tags);
+  return { data: enriched != null ? enriched : audio, embedded: !!enriched, lyric, cover };
+}
 async function downloadQq(plugin, song, cookies, onProgress) {
   var _a, _b;
   const qqCookie = ((_a = cookies.qq) != null ? _a : "").trim();
@@ -14641,19 +15231,21 @@ async function downloadQq(plugin, song, cookies, onProgress) {
   if (!audio || audio.byteLength < MIN_AUDIO_BYTES)
     return { ok: false, message: "\u4E0B\u8F7D\u5931\u8D25\uFF08\u53EF\u80FD\u4ED8\u8D39\u53D7\u9650\u6216 Cookie \u6743\u9650\u4E0D\u8DB3\uFF09" };
   const isMp3 = looksLikeMp3(audio);
-  const ext = isMp3 ? "mp3" : looksLikeM4a(audio) ? "m4a" : "mp3";
+  const isM4a = looksLikeM4a(audio);
+  const ext = isMp3 ? "mp3" : isM4a ? "m4a" : "mp3";
   let data = audio;
-  if (isMp3) {
-    const enriched = embedTagsIntoBytes(audio, { title: song.name, artist: song.artist, album: song.album });
-    if (enriched)
-      data = enriched;
+  let metaNote = "";
+  if (isMp3 || isM4a) {
+    const enriched = await enrichDownloadTags(song, audio, onProgress);
+    data = enriched.data;
+    metaNote = enriched.embedded ? enriched.lyric && enriched.cover ? "\uFF08\u5DF2\u5185\u5D4C\u6B4C\u8BCD+\u5C01\u9762\uFF09" : enriched.lyric ? "\uFF08\u5DF2\u5185\u5D4C\u6B4C\u8BCD\uFF09" : enriched.cover ? "\uFF08\u5DF2\u5185\u5D4C\u5C01\u9762\uFF09" : "" : "\uFF08\u672A\u5185\u5D4C\u6807\u7B7E\uFF09";
   }
   const targetPath = await resolveDownloadTargetUnique(plugin, buildSongFilename(song.artist, song.name, ext), "qq");
   const ok = await writeAudioToVault(plugin.app, targetPath, data);
   if (!ok)
     return { ok: false, message: "\u5199\u5165\u5931\u8D25\uFF0C\u5DF2\u8FD8\u539F\u539F\u6587\u4EF6" };
   void plugin.scanLyricSongs();
-  return { ok: true, message: `\u5DF2\u4E0B\u8F7D QQ\uFF08${ext}\uFF09${formatBytes(data.byteLength)}\uFF1A${targetPath}` };
+  return { ok: true, message: `\u5DF2\u4E0B\u8F7D QQ\uFF08${ext}\uFF09${formatBytes(data.byteLength)}\uFF1A${targetPath}${metaNote}` };
 }
 async function downloadKugou(plugin, song, onProgress) {
   if (song.vip) {
@@ -14692,19 +15284,21 @@ async function downloadKugou(plugin, song, onProgress) {
   if (!audio || audio.byteLength < MIN_AUDIO_BYTES)
     return { ok: false, message: "\u4E0B\u8F7D\u5931\u8D25\uFF08\u53EF\u80FD\u53D7\u9650\u6216\u63A5\u53E3\u53D8\u66F4\uFF09" };
   const isMp3 = looksLikeMp3(audio);
-  const ext = isMp3 ? "mp3" : looksLikeM4a(audio) ? "m4a" : "mp3";
+  const isM4a = looksLikeM4a(audio);
+  const ext = isMp3 ? "mp3" : isM4a ? "m4a" : "mp3";
   let data = audio;
-  if (isMp3) {
-    const enriched = embedTagsIntoBytes(audio, { title: song.name, artist: song.artist, album: song.album });
-    if (enriched)
-      data = enriched;
+  let metaNote = "";
+  if (isMp3 || isM4a) {
+    const enriched = await enrichDownloadTags(song, audio, onProgress);
+    data = enriched.data;
+    metaNote = enriched.embedded ? enriched.lyric && enriched.cover ? "\uFF08\u5DF2\u5185\u5D4C\u6B4C\u8BCD+\u5C01\u9762\uFF09" : enriched.lyric ? "\uFF08\u5DF2\u5185\u5D4C\u6B4C\u8BCD\uFF09" : enriched.cover ? "\uFF08\u5DF2\u5185\u5D4C\u5C01\u9762\uFF09" : "" : "\uFF08\u672A\u5185\u5D4C\u6807\u7B7E\uFF09";
   }
   const targetPath = await resolveDownloadTargetUnique(plugin, buildSongFilename(song.artist, song.name, ext), "kugou");
   const ok = await writeAudioToVault(plugin.app, targetPath, data);
   if (!ok)
     return { ok: false, message: "\u5199\u5165\u5931\u8D25\uFF0C\u5DF2\u8FD8\u539F\u539F\u6587\u4EF6" };
   void plugin.scanLyricSongs();
-  return { ok: true, message: `\u5DF2\u4E0B\u8F7D\u9177\u72D7\uFF08${ext}\uFF09${formatBytes(data.byteLength)}\uFF1A${targetPath}` };
+  return { ok: true, message: `\u5DF2\u4E0B\u8F7D\u9177\u72D7\uFF08${ext}\uFF09${formatBytes(data.byteLength)}\uFF1A${targetPath}${metaNote}` };
 }
 async function downloadKuwo(plugin, song, onProgress) {
   const rid = song.kuwoRid || song.id || "";
@@ -14737,19 +15331,21 @@ async function downloadKuwo(plugin, song, onProgress) {
   if (!audio || audio.byteLength < MIN_AUDIO_BYTES)
     return { ok: false, message: "\u4E0B\u8F7D\u5931\u8D25\uFF08\u53EF\u80FD\u7248\u6743\u53D7\u9650\uFF09" };
   const isMp3 = looksLikeMp3(audio);
-  const ext = isMp3 ? "mp3" : looksLikeM4a(audio) ? "m4a" : "mp3";
+  const isM4a = looksLikeM4a(audio);
+  const ext = isMp3 ? "mp3" : isM4a ? "m4a" : "mp3";
   let data = audio;
-  if (isMp3) {
-    const enriched = embedTagsIntoBytes(audio, { title: song.name, artist: song.artist, album: song.album });
-    if (enriched)
-      data = enriched;
+  let metaNote = "";
+  if (isMp3 || isM4a) {
+    const enriched = await enrichDownloadTags(song, audio, onProgress);
+    data = enriched.data;
+    metaNote = enriched.embedded ? enriched.lyric && enriched.cover ? "\uFF08\u5DF2\u5185\u5D4C\u6B4C\u8BCD+\u5C01\u9762\uFF09" : enriched.lyric ? "\uFF08\u5DF2\u5185\u5D4C\u6B4C\u8BCD\uFF09" : enriched.cover ? "\uFF08\u5DF2\u5185\u5D4C\u5C01\u9762\uFF09" : "" : "\uFF08\u672A\u5185\u5D4C\u6807\u7B7E\uFF09";
   }
   const targetPath = await resolveDownloadTargetUnique(plugin, buildSongFilename(song.artist, song.name, ext), "kuwo");
   const ok = await writeAudioToVault(plugin.app, targetPath, data);
   if (!ok)
     return { ok: false, message: "\u5199\u5165\u5931\u8D25\uFF0C\u5DF2\u8FD8\u539F\u539F\u6587\u4EF6" };
   void plugin.scanLyricSongs();
-  return { ok: true, message: `\u5DF2\u4E0B\u8F7D\u9177\u6211\uFF08${quality}\u2192${ext}\uFF09${formatBytes(data.byteLength)}\uFF1A${targetPath}` };
+  return { ok: true, message: `\u5DF2\u4E0B\u8F7D\u9177\u6211\uFF08${quality}\u2192${ext}\uFF09${formatBytes(data.byteLength)}\uFF1A${targetPath}${metaNote}` };
 }
 function looksLikeMp3(b) {
   if (b.length < 2)
@@ -14777,18 +15373,18 @@ function getKeepAliveAgent(isHttps) {
   }
   return keepAliveAgents[key];
 }
-async function translateText(text, target = "zh-CN", provider = "auto", apiKey, prompt) {
+async function translateText(text, target = "zh-CN", provider = "auto", apiKey, prompt, signal) {
   var _a, _b, _c;
   const textTrim = text.trim();
   if (!textTrim)
     return null;
   if (provider === "google")
-    return (_a = await translateGoogle(textTrim, target)) != null ? _a : await translateMyMemory(textTrim, target);
+    return (_a = await translateGoogle(textTrim, target, signal)) != null ? _a : await translateMyMemory(textTrim, target, signal);
   if (provider === "mymemory")
-    return await translateMyMemory(textTrim, target);
+    return await translateMyMemory(textTrim, target, signal);
   if (provider === "deepseek")
-    return (_b = await translateDeepseek(textTrim, target, apiKey != null ? apiKey : "", prompt)) != null ? _b : await translateMyMemory(textTrim, target);
-  return (_c = await translateGoogle(textTrim, target)) != null ? _c : await translateMyMemory(textTrim, target);
+    return (_b = await translateDeepseek(textTrim, target, apiKey != null ? apiKey : "", prompt)) != null ? _b : await translateMyMemory(textTrim, target, signal);
+  return (_c = await translateGoogle(textTrim, target, signal)) != null ? _c : await translateMyMemory(textTrim, target, signal);
 }
 async function testTranslateConnection(provider, apiKey, prompt) {
   const started = Date.now();
@@ -14809,9 +15405,9 @@ async function testTranslateConnection(provider, apiKey, prompt) {
     return { ok: true, message: `${label} \u7FFB\u8BD1\u53EF\u7528\uFF08\u793A\u4F8B\uFF1A\u6D4B\u8BD5 \u2192 ${result}\uFF0C\u8017\u65F6 ${cost()}\uFF09` };
   return { ok: false, message: `${label} \u8BF7\u6C42\u5931\u8D25\uFF08\u7F51\u7EDC\u6216\u63A5\u53E3\u53D8\u66F4\uFF0C\u8017\u65F6 ${cost()}\uFF09` };
 }
-async function translateGoogle(text, target) {
+async function translateGoogle(text, target, signal) {
   try {
-    const res = await httpGetTextChecked(buildGoogleTranslateUrl(text, target), { Referer: "https://translate.google.com/" });
+    const res = await httpGetTextChecked(buildGoogleTranslateUrl(text, target), { Referer: "https://translate.google.com/" }, signal);
     if (!res.failed) {
       const parsed = parseGoogleTranslateResponse(res.text);
       if (parsed)
@@ -14821,9 +15417,9 @@ async function translateGoogle(text, target) {
   }
   return null;
 }
-async function translateMyMemory(text, target) {
+async function translateMyMemory(text, target, signal) {
   try {
-    const res = await httpGetTextChecked(buildMyMemoryUrl(text, target));
+    const res = await httpGetTextChecked(buildMyMemoryUrl(text, target), void 0, signal);
     if (!res.failed) {
       const parsed = parseMyMemoryResponse(res.text);
       if (parsed)
@@ -14848,27 +15444,33 @@ async function translateDeepseek(text, target, apiKey, prompt) {
   }
   return null;
 }
-async function translateLyricText(lrc, target = "zh-CN", onProgress, provider = "auto", isCancelled, apiKey, prompt, signal) {
+async function translateLyricText(lrc, target = "zh-CN", onProgress, provider = "auto", isCancelled, apiKey, prompt, signal, onReasoning) {
   const lines = parseLyricLines(lrc);
   if (lines.length === 0)
     return null;
-  const contentLines = lines.filter((l) => l.text.trim());
+  const { content, meta } = splitLyricLines(lines);
+  const contentLines = content.map((c) => c.line);
   if (contentLines.length === 0)
     return null;
   onProgress == null ? void 0 : onProgress(0, contentLines.length);
   if (provider === "deepseek") {
     if (!apiKey || !apiKey.trim())
       return null;
-    const translations = await translateDeepseekLyrics(contentLines, target, apiKey, prompt != null ? prompt : "", signal);
-    const translated2 = contentLines.map((l, i) => {
+    let translations = await translateDeepseekLyricsStreaming(contentLines, target, apiKey, prompt != null ? prompt : "", signal, onReasoning);
+    if (prompt && prompt.trim() && isAllRejected(translations) && !(signal == null ? void 0 : signal.aborted)) {
+      translations = await translateDeepseekLyricsStreaming(contentLines, target, apiKey, "", signal, onReasoning);
+    }
+    const translated2 = content.map((c, i) => {
       var _a;
       return {
-        time: l.time,
-        text: l.text,
+        time: c.line.time,
+        text: c.line.text,
         translation: (_a = translations[i]) != null ? _a : void 0
       };
     });
-    return translated2.some((t) => t.translation) ? buildBilingualLrc(translated2) : null;
+    if (!translated2.some((t) => t.translation))
+      return null;
+    return buildBilingualLrc(mergeTranslatedRows(lines, meta, translated2));
   }
   const translated = [];
   const CHUNK = 5;
@@ -14881,25 +15483,28 @@ async function translateLyricText(lrc, target = "zh-CN", onProgress, provider = 
       return {
         time: l.time,
         text: l.text,
-        translation: (_a = await translateText(l.text, target, provider, apiKey, prompt)) != null ? _a : void 0
+        translation: (_a = await translateText(l.text, target, provider, apiKey, prompt, signal)) != null ? _a : void 0
       };
     }));
     translated.push(...results);
     onProgress == null ? void 0 : onProgress(Math.min(i + chunk2.length, contentLines.length), contentLines.length);
   }
-  return translated.some((t) => t.translation) ? buildBilingualLrc(translated) : null;
+  return translated.some((t) => t.translation) ? buildBilingualLrc(mergeTranslatedRows(lines, meta, translated)) : null;
 }
-async function translateDeepseekLyrics(contentLines, target, apiKey, prompt, signal) {
+async function translateDeepseekLyricsStreaming(contentLines, target, apiKey, prompt, signal, onReasoning) {
   if (signal == null ? void 0 : signal.aborted)
     return contentLines.map(() => null);
   const numbered = contentLines.map((l, i) => `${i + 1}. ${l.text}`).join("\n");
-  const req = buildDeepseekRequest(numbered, apiKey, prompt, target);
+  const req = buildDeepseekRequest(numbered, apiKey, prompt, target, true);
   try {
-    const res = await httpPost(req.url, req.body, req.headers, signal);
-    if (res) {
-      const parsed = parseDeepseekResponse(new TextDecoder().decode(res.data));
-      if (parsed)
-        return splitDeepseekLyricsResponse(parsed, contentLines.length);
+    const acc = new DeepseekSseAccumulator();
+    const res = await httpPost(req.url, req.body, req.headers, signal, 12e4, (chunk2) => {
+      const added = acc.push(chunk2);
+      if (added && onReasoning)
+        onReasoning(added);
+    });
+    if (res && acc.content.trim()) {
+      return splitDeepseekLyricsResponse(acc.content, contentLines.length);
     }
   } catch (e) {
   }
@@ -14951,28 +15556,28 @@ async function fetchKugouLyrics(song) {
   }
   return null;
 }
-async function httpGet(url, depth, onProgress, extraHeaders) {
+async function httpGet(url, depth, onProgress, extraHeaders, signal, timeoutMs = 6e4) {
   var _a, _b;
   try {
     const r = window.require;
     if (typeof r === "function" && (((_a = r("https")) == null ? void 0 : _a.request) || ((_b = r("http")) == null ? void 0 : _b.request))) {
-      return await nodeGet(url, depth, onProgress, extraHeaders);
+      return await nodeGet(url, depth, onProgress, extraHeaders, signal, timeoutMs);
     }
   } catch (e) {
   }
-  return fetchGet(url, onProgress, extraHeaders);
+  return fetchGet(url, onProgress, extraHeaders, signal, timeoutMs);
 }
-async function httpGetText(url, extraHeaders) {
-  const res = await httpGet(url, 0, void 0, extraHeaders);
+async function httpGetText(url, extraHeaders, signal) {
+  const res = await httpGet(url, 0, void 0, extraHeaders, signal);
   return res ? new TextDecoder("utf-8").decode(res.data) : "";
 }
-async function httpGetTextChecked(url, extraHeaders) {
-  const res = await httpGet(url, 0, void 0, extraHeaders);
+async function httpGetTextChecked(url, extraHeaders, signal) {
+  const res = await httpGet(url, 0, void 0, extraHeaders, signal);
   if (!res)
     return { text: "", failed: true };
   return { text: new TextDecoder("utf-8").decode(res.data), failed: false };
 }
-function nodeGet(url, depth, onProgress, extraHeaders) {
+function nodeGet(url, depth, onProgress, extraHeaders, signal, timeoutMs = 6e4) {
   return new Promise((resolve) => {
     if (depth > 6) {
       resolve(null);
@@ -15001,7 +15606,7 @@ function nodeGet(url, depth, onProgress, extraHeaders) {
       if (status >= 300 && status < 400 && loc) {
         res.resume();
         const next = /^https?:\/\//i.test(loc) ? loc : new URL(loc, url).toString();
-        resolve(nodeGet(next, depth + 1, onProgress, extraHeaders));
+        resolve(nodeGet(next, depth + 1, onProgress, extraHeaders, signal, timeoutMs));
         return;
       }
       if (status !== 200) {
@@ -15039,16 +15644,34 @@ function nodeGet(url, depth, onProgress, extraHeaders) {
         onProgress == null ? void 0 : onProgress(received, total);
       });
       res.on("end", () => resolve({ status, data: new Uint8Array(Buffer.concat(chunks)), headers }));
+      res.on("aborted", () => resolve(null));
+      res.on("error", () => resolve(null));
+      res.on("close", () => resolve(null));
     });
-    req.setTimeout(6e4, () => req.destroy());
+    req.setTimeout(timeoutMs, () => req.destroy());
+    if (signal) {
+      if (signal.aborted) {
+        req.destroy();
+        resolve(null);
+        return;
+      }
+      signal.addEventListener("abort", () => req.destroy(), { once: true });
+    }
     req.on("error", () => resolve(null));
     req.end();
   });
 }
-async function fetchGet(url, onProgress, extraHeaders) {
+async function fetchGet(url, onProgress, extraHeaders, signal, timeoutMs = 6e4) {
   try {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 6e4);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    if (signal) {
+      if (signal.aborted) {
+        clearTimeout(timer);
+        return null;
+      }
+      signal.addEventListener("abort", () => controller.abort(), { once: true });
+    }
     try {
       const res = await fetch(url, { signal: controller.signal, headers: extraHeaders });
       if (!res.ok)
@@ -15088,18 +15711,18 @@ async function fetchGet(url, onProgress, extraHeaders) {
     return null;
   }
 }
-async function httpPost(url, body, extraHeaders, signal) {
+async function httpPost(url, body, extraHeaders, signal, timeoutMs = 6e4, onChunk) {
   var _a, _b;
   try {
     const r = window.require;
     if (typeof r === "function" && (((_a = r("https")) == null ? void 0 : _a.request) || ((_b = r("http")) == null ? void 0 : _b.request))) {
-      return await nodePost(url, body, extraHeaders, signal);
+      return await nodePost(url, body, extraHeaders, signal, timeoutMs, onChunk);
     }
   } catch (e) {
   }
-  return fetchPost(url, body, extraHeaders, signal);
+  return fetchPost(url, body, extraHeaders, signal, timeoutMs, onChunk);
 }
-function nodePost(url, body, extraHeaders, signal) {
+function nodePost(url, body, extraHeaders, signal, timeoutMs = 6e4, onChunk) {
   return new Promise((resolve) => {
     let u;
     try {
@@ -15110,6 +15733,7 @@ function nodePost(url, body, extraHeaders, signal) {
     }
     const isHttps = u.protocol === "https:";
     const mod = window.require(isHttps ? "https" : "http");
+    const sseDecoder = new TextDecoder("utf-8");
     const req = mod.request({
       hostname: u.hostname,
       port: u.port || (isHttps ? 443 : 80),
@@ -15146,10 +15770,21 @@ function nodePost(url, body, extraHeaders, signal) {
           headers[k.toLowerCase()] = v.join(",");
       }
       const chunks = [];
-      res.on("data", (c) => chunks.push(c));
-      res.on("end", () => resolve({ status, data: new Uint8Array(Buffer.concat(chunks)), headers }));
+      res.on("data", (c) => {
+        chunks.push(c);
+        if (onChunk)
+          onChunk(sseDecoder.decode(c, { stream: true }));
+      });
+      res.on("end", () => {
+        if (onChunk)
+          onChunk(sseDecoder.decode());
+        resolve({ status, data: new Uint8Array(Buffer.concat(chunks)), headers });
+      });
+      res.on("aborted", () => resolve(null));
+      res.on("error", () => resolve(null));
+      res.on("close", () => resolve(null));
     });
-    req.setTimeout(6e4, () => req.destroy());
+    req.setTimeout(timeoutMs, () => req.destroy());
     if (signal) {
       if (signal.aborted) {
         req.destroy();
@@ -15162,10 +15797,10 @@ function nodePost(url, body, extraHeaders, signal) {
     req.end(body);
   });
 }
-async function fetchPost(url, body, extraHeaders, signal) {
+async function fetchPost(url, body, extraHeaders, signal, timeoutMs = 6e4, onChunk) {
   try {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 6e4);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     if (signal) {
       if (signal.aborted) {
         clearTimeout(timer);
@@ -15186,6 +15821,32 @@ async function fetchPost(url, body, extraHeaders, signal) {
       res.headers.forEach((v, k) => {
         headers[k.toLowerCase()] = v;
       });
+      if (onChunk) {
+        if (!res.body)
+          return null;
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder("utf-8");
+        const parts = [];
+        let received = 0;
+        for (; ; ) {
+          const { done, value } = await reader.read();
+          if (done)
+            break;
+          if (value) {
+            parts.push(value);
+            received += value.byteLength;
+            onChunk(decoder.decode(value, { stream: true }));
+          }
+        }
+        onChunk(decoder.decode());
+        const merged = new Uint8Array(received);
+        let off = 0;
+        for (const p of parts) {
+          merged.set(p, off);
+          off += p.byteLength;
+        }
+        return { status: res.status, data: merged, headers };
+      }
       return { status: res.status, data: new Uint8Array(await res.arrayBuffer()), headers };
     } finally {
       clearTimeout(timer);
@@ -15886,7 +16547,7 @@ var SOURCE_LABELS = {
   kuwo: "\u9177\u6211"
 };
 var TagEditorModal = class extends import_obsidian10.Modal {
-  // 翻译进度文字
+  // 上次展示片段的时间戳（≥2s 才更新一次，做到「时不时」）
   constructor(app, plugin, notePath, initialSource) {
     super(app);
     this.plugin = plugin;
@@ -15907,6 +16568,8 @@ var TagEditorModal = class extends import_obsidian10.Modal {
     // 当前文件字节数（0 = 读取失败/未知）
     this.durationSec = 0;
     // 当前音频时长（秒，0 = 解析失败/未知）
+    this.container = "mp3";
+    // 真实容器（编辑弹窗按容器分派写入与体积估算）
     this.baselineEmbedded = 0;
     // 打开时原标签在 ID3v2 中的估算字节，用于计算保存后的预计增量
     this.sizeDescEl = null;
@@ -15925,49 +16588,75 @@ var TagEditorModal = class extends import_obsidian10.Modal {
     // 翻译开始时间（performance.now），用于估算剩余时间
     this.translateAbort = null;
     // 翻译取消控制器：abort 立即中止在途 DeepSeek 请求
-    this.translateProgressTimer = null;
-    // 动画进度条计时器：20 秒内 0→99%，超时卡 99% 等真实结果
-    this.translateProgressFlashTimer = null;
-    // 翻译完成「瞬间 100%」短暂停留后隐藏的定时器
+    this.translateSecondsTimer = null;
+    // DeepSeek 已用秒数计时器（1s 刷新）
+    this.translateSeconds = 0;
+    // DeepSeek 已用秒数
+    this.translateTimeoutHintShown = false;
+    // 60s 提示是否已显示（只显示一次）
+    this.translateDoneTimer = null;
+    // 完成「✓ 翻译完成」短暂停留后隐藏的定时器
     this.translateProgressWrap = null;
     // 翻译进度条容器
     this.translateProgressFill = null;
     // 翻译进度条填充
     this.translateProgressText = null;
+    // 翻译进度文字
+    this.translateSpinner = null;
+    // DeepSeek 转圈
+    this.translateTimeoutHintEl = null;
+    // 60s 超时提示文本
+    this.translateProgressTrack = null;
+    // 进度条轨道（DeepSeek 时隐藏）
+    this.translateReasoningAccum = "";
+    // 流式思考文本累计（仅用于截取片段，不整体展示）
+    this.translateReasoningShown = false;
+    // 是否已展示过思考片段（展示期间不覆盖为秒数文本）
+    this.translateReasoningPendingNew = false;
+    // 有新思考文本待展示（供秒数计时器轮询节流）
+    this.translateReasoningLastShown = 0;
   }
   async onOpen() {
-    var _a, _b, _c, _d, _e, _f;
+    var _a, _b, _c, _d, _e, _f, _g, _h;
     this.contentEl.empty();
     this.contentEl.addClass("lyrics-tag-editor");
     this.titleEl.setText("\u7F16\u8F91\u6807\u7B7E");
     const loading = this.contentEl.createDiv({ cls: "lyrics-tag-loading", text: "\u6B63\u5728\u8BFB\u53D6\u6807\u7B7E\u2026" });
     this.source = (_a = this.initialSource) != null ? _a : await resolveAudioSource(this.app, this.notePath);
     if (!this.source) {
-      new import_obsidian10.Notice("\u672A\u627E\u5230\u8BE5\u6B4C\u66F2\u7684 MP3 \u6587\u4EF6");
+      new import_obsidian10.Notice("\u672A\u627E\u5230\u8BE5\u6B4C\u66F2\u7684\u97F3\u9891\u6587\u4EF6");
       this.close();
       return;
     }
-    const isMp3 = this.source.type === "vault" ? /\.mp3$/i.test((_c = (_b = this.source.file) == null ? void 0 : _b.name) != null ? _c : "") : /\.mp3$/i.test((_d = this.source.path) != null ? _d : "");
-    if (!isMp3) {
-      new import_obsidian10.Notice("\u4EC5 MP3 \u53EF\u7F16\u8F91\u6807\u7B7E\uFF0C\u8BE5\u683C\u5F0F\u4E3A\u53EA\u8BFB\u5C55\u793A", 4e3);
+    const extEditable = this.source.type === "vault" ? /\.(mp3|m4a)$/i.test((_c = (_b = this.source.file) == null ? void 0 : _b.name) != null ? _c : "") : /\.(mp3|m4a)$/i.test((_d = this.source.path) != null ? _d : "");
+    if (!extEditable) {
+      new import_obsidian10.Notice("\u4EC5 MP3/M4A \u53EF\u7F16\u8F91\u6807\u7B7E\uFF0C\u8BE5\u683C\u5F0F\u4E3A\u53EA\u8BFB\u5C55\u793A", 4e3);
       this.close();
       return;
     }
     const bytes = await readAudioFileBytes(this.app, this.source);
     if (bytes) {
       const container = detectAudioContainer(bytes);
-      if (container !== "mp3" && container !== "unknown") {
-        const label = container === "m4a" ? "M4A/AAC" : container.toUpperCase();
-        new import_obsidian10.Notice(`\u8BE5\u6587\u4EF6\u5B9E\u4E3A ${label} \u683C\u5F0F\uFF08\u6269\u5C55\u540D\u4E3A .mp3\uFF09\uFF0C\u4E3A\u907F\u514D\u635F\u574F\u6587\u4EF6\u5DF2\u7981\u6B62\u7F16\u8F91`, 6e3);
+      if (container === "flac" || container === "ogg") {
+        new import_obsidian10.Notice(`\u8BE5\u6587\u4EF6\u5B9E\u4E3A ${container.toUpperCase()} \u683C\u5F0F\uFF0C\u4E3A\u907F\u514D\u635F\u574F\u6587\u4EF6\u5DF2\u7981\u6B62\u7F16\u8F91`, 6e3);
         this.close();
         return;
       }
+      this.container = container === "m4a" ? "m4a" : "mp3";
     }
-    this.tags = bytes ? (_e = parseTagsForPlugin(bytes)) != null ? _e : {} : {};
-    this.durationSec = bytes ? (_f = estimateMp3Duration(bytes)) != null ? _f : 0 : 0;
+    let tags = {};
+    if (bytes) {
+      if (this.container === "m4a") {
+        tags = (_e = await readGenericTags(bytes)) != null ? _e : {};
+      } else {
+        tags = (_f = parseTagsForPlugin(bytes)) != null ? _f : {};
+      }
+    }
+    this.tags = tags;
+    this.durationSec = bytes ? this.container === "m4a" ? (_g = extractMp4Duration(bytes)) != null ? _g : 0 : (_h = estimateMp3Duration(bytes)) != null ? _h : 0 : 0;
     const size = await getAudioFileSize(this.app, this.source);
     this.fileSizeBytes = size != null ? size : 0;
-    this.baselineEmbedded = estimateEmbeddedSize(this.tags);
+    this.baselineEmbedded = this.container === "m4a" ? estimateM4aEmbeddedSize(this.tags) : estimateEmbeddedSize(this.tags);
     loading.remove();
     this.render();
   }
@@ -16014,8 +16703,12 @@ var TagEditorModal = class extends import_obsidian10.Modal {
     const translateProgressWrap = contentEl.createDiv({ cls: "lyrics-tag-translate-progress lyrics-tag-translate-progress-hidden" });
     const translateProgressTrack = translateProgressWrap.createDiv({ cls: "lyrics-tag-translate-progress-track" });
     this.translateProgressFill = translateProgressTrack.createDiv({ cls: "lyrics-tag-translate-progress-fill" });
-    this.translateProgressText = translateProgressWrap.createDiv({ cls: "lyrics-tag-translate-progress-text" });
+    const translateProgressTextRow = translateProgressWrap.createDiv({ cls: "lyrics-tag-translate-progress-text-row" });
+    this.translateSpinner = translateProgressTextRow.createSpan({ cls: "lyrics-tag-translate-spinner lyrics-tag-translate-progress-hidden" });
+    this.translateProgressText = translateProgressTextRow.createSpan({ cls: "lyrics-tag-translate-progress-text" });
+    this.translateTimeoutHintEl = translateProgressWrap.createDiv({ cls: "lyrics-tag-translate-timeout-hint lyrics-tag-translate-progress-hidden" });
     this.translateProgressWrap = translateProgressWrap;
+    this.translateProgressTrack = translateProgressTrack;
     const candidateBox = contentEl.createDiv({ cls: "lyrics-tag-lyric-candidates lyrics-tag-lyric-candidates-hidden" });
     this.lyricCandidatesEl = candidateBox;
     const coverSetting = new import_obsidian10.Setting(contentEl).setName("\u5C01\u9762");
@@ -16179,10 +16872,12 @@ var TagEditorModal = class extends import_obsidian10.Modal {
   }
   /** 逐行翻译歌词为 `原文 | 译文` 双语格式（翻译源取设置，失败降级 MyMemory）；翻译中按钮变「取消」可随时中断，结果写回歌词框 */
   async translateLyrics(lyricsArea, btn) {
-    var _a, _b, _c, _d, _e, _f;
+    var _a, _b, _c, _d, _e, _f, _g;
     if (this.translating) {
       this.translateCancelled = true;
       (_a = this.translateAbort) == null ? void 0 : _a.abort();
+      btn.setButtonText("\u53D6\u6D88\u4E2D\u2026");
+      btn.setDisabled(true);
       return;
     }
     const text = ((_c = (_b = this.tags.lyrics) != null ? _b : lyricsArea.value) != null ? _c : "").trim();
@@ -16191,6 +16886,10 @@ var TagEditorModal = class extends import_obsidian10.Modal {
       return;
     }
     this.translating = true;
+    if (this.translateDoneTimer !== null) {
+      clearTimeout(this.translateDoneTimer);
+      this.translateDoneTimer = null;
+    }
     this.translateCancelled = false;
     this.translateStartedAt = performance.now();
     const translateAbortCtrl = new AbortController();
@@ -16201,8 +16900,9 @@ var TagEditorModal = class extends import_obsidian10.Modal {
     const translatePrompt = provider === "deepseek" ? (_f = settings.translateDeepseekPrompt) != null ? _f : "" : "";
     btn.setButtonText("\u53D6\u6D88");
     if (provider === "deepseek") {
-      this.startTranslateProgressAnim();
+      this.startTranslateSeconds();
     } else {
+      (_g = this.translateProgressTrack) == null ? void 0 : _g.removeClass("lyrics-tag-translate-progress-hidden");
       this.showTranslateProgress(0, "\u6B63\u5728\u7FFB\u8BD1\u2026", 0, 1);
     }
     try {
@@ -16219,7 +16919,8 @@ var TagEditorModal = class extends import_obsidian10.Modal {
         () => this.translateCancelled,
         translateApiKey,
         translatePrompt,
-        translateAbortCtrl.signal
+        translateAbortCtrl.signal,
+        (reasoning) => this.showTranslateReasoning(reasoning)
       );
       if (!bilingual) {
         new import_obsidian10.Notice(this.translateCancelled ? "\u5DF2\u53D6\u6D88\u7FFB\u8BD1" : "\u7FFB\u8BD1\u5931\u8D25\uFF08\u7F51\u7EDC\u9519\u8BEF\u6216\u6B4C\u8BCD\u4E3A\u7A7A\uFF09", 5e3);
@@ -16228,14 +16929,19 @@ var TagEditorModal = class extends import_obsidian10.Modal {
       lyricsArea.value = bilingual;
       this.tags.lyrics = bilingual;
       this.updateSizeEstimate();
-      this.stopTranslateProgressAnim();
-      this.showTranslateProgress(100, "\u7FFB\u8BD1\u5B8C\u6210", 0, 1);
-      if (this.translateProgressFlashTimer !== null)
-        clearTimeout(this.translateProgressFlashTimer);
-      this.translateProgressFlashTimer = window.setTimeout(() => {
-        this.translateProgressFlashTimer = null;
+      this.stopTranslateSeconds();
+      if (provider === "deepseek") {
+        if (this.translateProgressText)
+          this.translateProgressText.setText("\u2713 \u7FFB\u8BD1\u5B8C\u6210");
+      } else {
+        this.showTranslateProgress(100, "\u7FFB\u8BD1\u5B8C\u6210", 0, 1);
+      }
+      if (this.translateDoneTimer !== null)
+        clearTimeout(this.translateDoneTimer);
+      this.translateDoneTimer = window.setTimeout(() => {
+        this.translateDoneTimer = null;
         this.hideTranslateProgress();
-      }, 400);
+      }, 1200);
       new import_obsidian10.Notice(this.translateCancelled ? `\u5DF2\u4E2D\u65AD\uFF0C\u4FDD\u7559\u5DF2\u7FFB\u8BD1 ${this.countTranslated(bilingual)} \u884C` : "\u5DF2\u751F\u6210 \u539F\u6587 | \u8BD1\u6587 \u53CC\u8BED\u6B4C\u8BCD", 3e3);
     } catch (e) {
       new import_obsidian10.Notice(`\u7FFB\u8BD1\u5931\u8D25\uFF1A${e.message || "\u7F51\u7EDC\u9519\u8BEF"}`, 5e3);
@@ -16243,10 +16949,11 @@ var TagEditorModal = class extends import_obsidian10.Modal {
       this.translating = false;
       this.translateCancelled = false;
       this.translateAbort = null;
-      this.stopTranslateProgressAnim();
-      if (this.translateProgressFlashTimer === null) {
+      this.stopTranslateSeconds();
+      if (this.translateDoneTimer === null) {
         this.hideTranslateProgress();
       }
+      btn.setDisabled(false);
       btn.setButtonText("\u7FFB\u8BD1\u6B4C\u8BCD");
     }
   }
@@ -16254,36 +16961,51 @@ var TagEditorModal = class extends import_obsidian10.Modal {
   countTranslated(bilingual) {
     return bilingual.split(/\r?\n/).filter((l) => l.includes(" | ")).length;
   }
-  /**
-   * 启动动画式进度条（v1.4.2）：DeepSeek 单次请求期间无真实中间进度，
-   * 用 20 秒内 0→99% 的模拟动画让用户感知「在跑」；超过 20 秒仍未返回结果则停在 99% 等待真实结果。
-   */
-  startTranslateProgressAnim() {
-    this.stopTranslateProgressAnim();
-    const started = performance.now();
-    const ANIM_MS = 2e4;
-    this.translateProgressTimer = window.setInterval(() => {
-      const elapsed = performance.now() - started;
-      const pct = Math.min(99, Math.round(elapsed / ANIM_MS * 99));
-      this.showTranslateProgress(pct, "\u6B63\u5728\u7FFB\u8BD1\u2026\uFF08AI \u751F\u6210\u4E2D\uFF09", 0, 1);
-      if (pct >= 99)
-        this.stopTranslateProgressAnim();
-    }, 200);
+  /** 启动 DeepSeek 已用秒数计时：转圈 + 每秒刷新「N 秒」；≥60s 显示一次超时提示（请求仍在途，可取消） */
+  startTranslateSeconds() {
+    var _a, _b, _c;
+    this.stopTranslateSeconds();
+    this.translateSeconds = 0;
+    this.translateTimeoutHintShown = false;
+    (_a = this.translateProgressTrack) == null ? void 0 : _a.addClass("lyrics-tag-translate-progress-hidden");
+    (_b = this.translateSpinner) == null ? void 0 : _b.removeClass("lyrics-tag-translate-progress-hidden");
+    (_c = this.translateTimeoutHintEl) == null ? void 0 : _c.addClass("lyrics-tag-translate-progress-hidden");
+    this.showTranslateProgress(0, "\u6B63\u5728\u7FFB\u8BD1\u2026\uFF08AI \u751F\u6210\u4E2D\uFF090 \u79D2", 0, 1, false);
+    this.translateSecondsTimer = window.setInterval(() => {
+      this.translateSeconds += 1;
+      const sec = this.translateSeconds;
+      if (this.translateReasoningShown) {
+        if (this.translateReasoningPendingNew && Date.now() - this.translateReasoningLastShown >= 2e3) {
+          this.showTranslateProgress(0, `\u601D\u8003\u4E2D\uFF08${this.translateElapsedSec()} \u79D2\uFF09\uFF1A${this.buildReasoningSnippet()}`, 0, 1, false);
+          this.translateReasoningLastShown = Date.now();
+          this.translateReasoningPendingNew = false;
+        }
+      } else {
+        this.showTranslateProgress(0, `\u6B63\u5728\u7FFB\u8BD1\u2026\uFF08AI \u751F\u6210\u4E2D\uFF09${sec} \u79D2`, 0, 1, false);
+      }
+      if (sec >= 60 && !this.translateTimeoutHintShown && this.translateTimeoutHintEl) {
+        this.translateTimeoutHintShown = true;
+        this.translateTimeoutHintEl.removeClass("lyrics-tag-translate-progress-hidden");
+        this.translateTimeoutHintEl.setText("\u5DF2\u8D85\u8FC7 60 \u79D2\uFF0C\u82E5\u957F\u65F6\u95F4\u65E0\u54CD\u5E94\u53EF\u53D6\u6D88\u540E\u91CD\u8BD5");
+      }
+    }, 1e3);
   }
-  /** 停止动画进度条计时器（翻译完成/失败/取消时调用） */
-  stopTranslateProgressAnim() {
-    if (this.translateProgressTimer !== null) {
-      clearInterval(this.translateProgressTimer);
-      this.translateProgressTimer = null;
+  /** 停止秒数计时并隐藏转圈（完成/失败/取消时调用） */
+  stopTranslateSeconds() {
+    var _a;
+    if (this.translateSecondsTimer !== null) {
+      clearInterval(this.translateSecondsTimer);
+      this.translateSecondsTimer = null;
     }
+    (_a = this.translateSpinner) == null ? void 0 : _a.addClass("lyrics-tag-translate-progress-hidden");
   }
-  /** 显示并更新翻译进度条（percent 0-100；label 状态文字；etaMs 预计剩余毫秒，0 或不足则省略） */
-  showTranslateProgress(percent, label, etaMs = 0, total = 0) {
+  /** 显示并更新翻译进度条（percent 0-100；label 状态文字；etaMs 预计剩余毫秒，0 或不足则省略；showPercent=false 时省略百分比后缀，供转圈计时显示） */
+  showTranslateProgress(percent, label, etaMs = 0, total = 0, showPercent = true) {
     if (!this.translateProgressWrap || !this.translateProgressFill || !this.translateProgressText)
       return;
     this.translateProgressWrap.removeClass("lyrics-tag-translate-progress-hidden");
     this.translateProgressFill.style.width = `${percent}%`;
-    let text = `${label}\uFF08${percent}%\uFF09`;
+    let text = showPercent ? `${label}\uFF08${percent}%\uFF09` : label;
     if (etaMs > 0 && total > 1) {
       const eta = this.formatEta(etaMs);
       if (eta)
@@ -16307,6 +17029,36 @@ var TagEditorModal = class extends import_obsidian10.Modal {
       return;
     this.translateProgressWrap.addClass("lyrics-tag-translate-progress-hidden");
     this.translateProgressFill.style.width = "0%";
+    this.translateReasoningAccum = "";
+    this.translateReasoningShown = false;
+    this.translateReasoningPendingNew = false;
+  }
+  /** 流式思考片段显示（覆盖式，非累积框）：新文本节流为每 ≥2s 覆盖一次进度文本为「思考中：<截断片段>」 */
+  showTranslateReasoning(text) {
+    if (!this.translateReasoningAccum) {
+      this.translateReasoningAccum = text;
+      this.translateReasoningShown = true;
+      this.translateReasoningPendingNew = false;
+      this.translateReasoningLastShown = Date.now();
+      this.showTranslateProgress(0, `\u601D\u8003\u4E2D\uFF08${this.translateElapsedSec()} \u79D2\uFF09\uFF1A${this.buildReasoningSnippet()}`, 0, 1, false);
+      return;
+    }
+    this.translateReasoningAccum += text;
+    this.translateReasoningPendingNew = true;
+    if (Date.now() - this.translateReasoningLastShown >= 2e3) {
+      this.showTranslateProgress(0, `\u601D\u8003\u4E2D\uFF08${this.translateElapsedSec()} \u79D2\uFF09\uFF1A${this.buildReasoningSnippet()}`, 0, 1, false);
+      this.translateReasoningLastShown = Date.now();
+      this.translateReasoningPendingNew = false;
+    }
+  }
+  /** 截断思考片段：单行化 + 取最近 ~40 字符（过长加省略号前缀） */
+  buildReasoningSnippet() {
+    const clean = this.translateReasoningAccum.replace(/\s+/g, " ").trim();
+    return clean.length > 40 ? `\u2026${clean.slice(-40)}` : clean;
+  }
+  /** 翻译已用秒数（以开始时刻为准，思考片段展示期间同样实时递增） */
+  translateElapsedSec() {
+    return Math.floor((performance.now() - this.translateStartedAt) / 1e3);
   }
   /** 搜索多平台候选，过滤有封面的，展示封面候选缩略图列表（点击某条导入） */
   async fetchCover(btn) {
@@ -16433,7 +17185,7 @@ var TagEditorModal = class extends import_obsidian10.Modal {
       this.sizeDescEl.setText(`\u5F53\u524D ${current}`);
       return;
     }
-    const newEmbedded = estimateEmbeddedSize(this.tags);
+    const newEmbedded = this.container === "m4a" ? estimateM4aEmbeddedSize(this.tags) : estimateEmbeddedSize(this.tags);
     const estimated = Math.max(0, this.fileSizeBytes - this.baselineEmbedded + newEmbedded);
     const delta = estimated - this.fileSizeBytes;
     const deltaText = delta === 0 ? "" : `\uFF08${delta > 0 ? "+" : "-"}${formatBytes(Math.abs(delta))}\uFF09`;
@@ -16463,7 +17215,7 @@ var TagEditorModal = class extends import_obsidian10.Modal {
       return;
     this.saving = true;
     try {
-      const ok = await writeMp3Tags(this.app, this.source, this.tags);
+      const ok = await writeAudioTags(this.app, this.source, this.tags);
       if (!ok) {
         new import_obsidian10.Notice("\u4FDD\u5B58\u5931\u8D25\uFF0C\u5DF2\u8FD8\u539F\u539F\u6587\u4EF6", 5e3);
         return;
@@ -16568,6 +17320,14 @@ var TagEditorModal = class extends import_obsidian10.Modal {
     }
   }
   onClose() {
+    if (this.translateSecondsTimer !== null) {
+      clearInterval(this.translateSecondsTimer);
+      this.translateSecondsTimer = null;
+    }
+    if (this.translateDoneTimer !== null) {
+      clearTimeout(this.translateDoneTimer);
+      this.translateDoneTimer = null;
+    }
     this.contentEl.empty();
   }
 };
@@ -17622,6 +18382,7 @@ var LyricsView = class extends import_obsidian13.ItemView {
     }
     this.openSongListPopup();
   }
+  /** 打开歌单弹窗（状态栏点击 / 快捷键命令共用） */
   openSongListPopup() {
     if (!this.lyricsPanel)
       return;
@@ -17650,15 +18411,19 @@ var LyricsView = class extends import_obsidian13.ItemView {
       attr: { type: "text", placeholder: "\u641C\u7D22\u6B4C\u66F2..." }
     });
     this.songListSearchEl.addEventListener("input", () => this.renderPopupSongList());
+    const songsAll = this.plugin.getSongList();
     const types = Array.from(new Set(
-      this.plugin.getSongList().map((s) => s.type).filter((t) => t && t.trim())
+      songsAll.map((s) => s.type).filter((t) => t && t.trim())
     )).sort((a, b) => a.localeCompare(b));
-    if (types.length > 0) {
-      if (!types.includes(this.songListTypeFilter))
+    const hasUncategorized = songsAll.some((s) => !s.type || !s.type.trim());
+    if (types.length > 0 || hasUncategorized) {
+      if (!types.includes(this.songListTypeFilter) && this.songListTypeFilter !== "\u672A\u5206\u7C7B")
         this.songListTypeFilter = "all";
       const filterWrap = filterRow.createDiv({ cls: "lyrics-song-popup-filter" });
       const select = filterWrap.createEl("select", { cls: "lyrics-song-popup-filter-select" });
       select.createEl("option", { value: "all", text: "\u5168\u90E8\u7C7B\u578B" });
+      if (hasUncategorized)
+        select.createEl("option", { value: "\u672A\u5206\u7C7B", text: "\u672A\u5206\u7C7B" });
       types.forEach((t) => select.createEl("option", { value: t, text: t }));
       select.value = this.songListTypeFilter;
       select.addEventListener("change", () => {
@@ -17685,7 +18450,7 @@ var LyricsView = class extends import_obsidian13.ItemView {
     const typeFilter = this.songListTypeFilter;
     const songs = allSongs.filter((s) => {
       const matchQuery = !query || s.title.toLowerCase().includes(query) || s.actor.toLowerCase().includes(query);
-      const matchType = typeFilter === "all" || s.type === typeFilter;
+      const matchType = typeFilter === "all" || typeFilter === "\u672A\u5206\u7C7B" && (!s.type || !s.type.trim()) || s.type === typeFilter;
       return matchQuery && matchType;
     });
     if (this.songListCountEl) {
@@ -17716,7 +18481,7 @@ var LyricsView = class extends import_obsidian13.ItemView {
         const thumb = item.createDiv({ cls: "lyrics-songs-item-thumb lyrics-songs-item-thumb-placeholder" });
         (0, import_obsidian13.setIcon)(thumb, "music");
       }
-      if (song.kind === "note" || /\.mp3$/i.test(song.path)) {
+      if (song.kind === "note" || /\.(mp3|m4a)$/i.test(song.path)) {
         const editBtn = item.createDiv({ cls: "lyrics-songs-edit-btn" });
         (0, import_obsidian13.setIcon)(editBtn, "pencil");
         editBtn.setAttribute("title", "\u7F16\u8F91\u6807\u7B7E");
@@ -18338,7 +19103,7 @@ var LyricsPlugin = class extends import_obsidian14.Plugin {
       this.syncPlayingMp3Metadata();
     }
   }
-  /** 富化单首歌：解析音频源 → 读 ID3 头部 → 缓存标签 → 按设置覆盖 title/actor */
+  /** 富化单首歌：解析音频源 → 读 ID3 头部（M4A 走 moov 定位读）→ 缓存标签 → 按设置覆盖 title/actor */
   async enrichOne(song) {
     var _a, _b, _c;
     let key = song.audioPath;
@@ -18361,8 +19126,9 @@ var LyricsPlugin = class extends import_obsidian14.Plugin {
       return;
     if (!src)
       return;
-    const head = await readMp3TagHead(this.app, src);
-    const tags = head ? parseTagsForPlugin(head) : null;
+    const isM4a = /\.m4a$/i.test(key);
+    const head = isM4a ? await readM4aTagHead(this.app, src) : await readMp3TagHead(this.app, src);
+    const tags = head ? isM4a ? parseM4aTags(head) : parseTagsForPlugin(head) : null;
     this.audioTagCache.set(key, tags);
     if (song.kind === "mp3") {
       if (tags == null ? void 0 : tags.title)
@@ -18471,6 +19237,31 @@ var LyricsPlugin = class extends import_obsidian14.Plugin {
       }
     }
   }
+  /** 按方向切歌（快捷键：1=下一首，-1=上一首）；无歌单/无下一首时静默忽略 */
+  stepSong(dir) {
+    var _a;
+    const state = this.getLyricsState();
+    const path = (_a = state == null ? void 0 : state.filePath) != null ? _a : "";
+    const next = dir === 1 ? this.getNextSong(path) : this.getPrevSong(path);
+    if (!next)
+      return;
+    void this.advanceToSong(next, path || void 0);
+  }
+  /** 打开侧边栏歌单弹窗（快捷键）：侧边栏未打开时先激活，视图就绪后打开 */
+  async openSongListPopup() {
+    const leaves = this.app.workspace.getLeavesOfType(LYRICS_VIEW_TYPE);
+    if (leaves.length === 0) {
+      await this.activateLyricsView();
+      const retry = this.app.workspace.getLeavesOfType(LYRICS_VIEW_TYPE);
+      if (retry.length === 0)
+        return;
+      if (retry[0].view instanceof LyricsView)
+        retry[0].view.openSongListPopup();
+      return;
+    }
+    if (leaves[0].view instanceof LyricsView)
+      leaves[0].view.openSongListPopup();
+  }
   /** 生成洗牌队列：整张歌单 Fisher-Yates 打乱，每首播一遍后才重复；队首避免是当前歌曲 */
   buildShuffleQueue(excludePath) {
     var _a;
@@ -18550,6 +19341,31 @@ var LyricsPlugin = class extends import_obsidian14.Plugin {
       id: "open-lyricflux-panel",
       name: "Open LyricFlux",
       callback: () => this.activateLyricsView()
+    });
+    this.addCommand({
+      id: "lyricflux-toggle-play",
+      name: "\u64AD\u653E/\u6682\u505C",
+      callback: () => this.toggleActivePlayer()
+    });
+    this.addCommand({
+      id: "lyricflux-next-song",
+      name: "\u4E0B\u4E00\u9996",
+      callback: () => this.stepSong(1)
+    });
+    this.addCommand({
+      id: "lyricflux-prev-song",
+      name: "\u4E0A\u4E00\u9996",
+      callback: () => this.stepSong(-1)
+    });
+    this.addCommand({
+      id: "lyricflux-open-playlist-popup",
+      name: "\u6253\u5F00\u6B4C\u5355\u5F39\u7A97",
+      callback: () => void this.openSongListPopup()
+    });
+    this.addCommand({
+      id: "lyricflux-open-download",
+      name: "\u6253\u5F00\u4E0B\u8F7D\u5F39\u7A97",
+      callback: () => new DownloadModal(this.app, this).open()
     });
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => {
       if (this.leafChangeTimer !== null)

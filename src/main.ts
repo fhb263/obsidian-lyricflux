@@ -4,9 +4,10 @@ import LyricsSettings, { DEFAULT_SETTINGS, type Settings } from 'Settings'
 import { Plugin, type MarkdownPostProcessorContext, TFile, type WorkspaceLeaf, type App } from 'obsidian'
 import type { LyricsLine } from 'renderers/renderer'
 import { LYRICS_VIEW_TYPE, PLAY_MODES, SPEED_OPTIONS, VOLUME_OPTIONS, type PlayMode } from 'shared'
-import { resolveAudioSource, readMp3TagHead, parseTagsForPlugin, type Mp3Tags, type AudioSource } from 'tags'
+import { resolveAudioSource, readMp3TagHead, readM4aTagHead, parseTagsForPlugin, parseM4aTags, type Mp3Tags, type AudioSource } from 'tags'
 import { isAudioFile, buildMp3Song, dedupeMp3ByNote, resolvePlayingMp3Metadata, isWindowsAbsolutePath } from 'songScanner'
 import LyricsView from 'LyricsView'
+import DownloadModal from 'DownloadModal'
 
 export interface LyricsState {
     filePath: string
@@ -602,7 +603,7 @@ export default class LyricsPlugin extends Plugin {
         }
     }
 
-    /** 富化单首歌：解析音频源 → 读 ID3 头部 → 缓存标签 → 按设置覆盖 title/actor */
+    /** 富化单首歌：解析音频源 → 读 ID3 头部（M4A 走 moov 定位读）→ 缓存标签 → 按设置覆盖 title/actor */
     private async enrichOne(song: LyricSong): Promise<void> {
         let key = song.audioPath
         let src = null as AudioSource | null
@@ -623,8 +624,10 @@ export default class LyricsPlugin extends Plugin {
         }
         if (!key || this.audioTagCache.has(key)) return
         if (!src) return
-        const head = await readMp3TagHead(this.app, src)
-        const tags = head ? parseTagsForPlugin(head) : null
+        // 按真实格式分派：m4a 走 moov 定位读 + 自研解析（readMp3TagHead/parseTagsForPlugin 只认 MP3 ID3）
+        const isM4a = /\.m4a$/i.test(key)
+        const head = isM4a ? await readM4aTagHead(this.app, src) : await readMp3TagHead(this.app, src)
+        const tags = head ? (isM4a ? parseM4aTags(head) : parseTagsForPlugin(head)) : null
         this.audioTagCache.set(key, tags)
         // 按来源自动决定元数据：裸 MP3 用音频标签覆盖 title/artist；笔记类保持 frontmatter（v1.5.0 移除开关）
         if (song.kind === 'mp3') {
@@ -730,6 +733,28 @@ export default class LyricsPlugin extends Plugin {
         }
     }
 
+    /** 按方向切歌（快捷键：1=下一首，-1=上一首）；无歌单/无下一首时静默忽略 */
+    private stepSong(dir: 1 | -1): void {
+        const state = this.getLyricsState()
+        const path = state?.filePath ?? ''
+        const next = dir === 1 ? this.getNextSong(path) : this.getPrevSong(path)
+        if (!next) return
+        void this.advanceToSong(next, path || undefined)
+    }
+
+    /** 打开侧边栏歌单弹窗（快捷键）：侧边栏未打开时先激活，视图就绪后打开 */
+    public async openSongListPopup(): Promise<void> {
+        const leaves = this.app.workspace.getLeavesOfType(LYRICS_VIEW_TYPE)
+        if (leaves.length === 0) {
+            await this.activateLyricsView()
+            const retry = this.app.workspace.getLeavesOfType(LYRICS_VIEW_TYPE)
+            if (retry.length === 0) return
+            if (retry[0].view instanceof LyricsView) retry[0].view.openSongListPopup()
+            return
+        }
+        if (leaves[0].view instanceof LyricsView) leaves[0].view.openSongListPopup()
+    }
+
     /** 生成洗牌队列：整张歌单 Fisher-Yates 打乱，每首播一遍后才重复；队首避免是当前歌曲 */
     private buildShuffleQueue(excludePath?: string): void {
         const songs = [...this.songList]
@@ -811,6 +836,33 @@ export default class LyricsPlugin extends Plugin {
             id: 'open-lyricflux-panel',
             name: 'Open LyricFlux',
             callback: () => this.activateLyricsView(),
+        })
+
+        // 快捷键命令（v1.4.3，无默认热键，用户在设置中自绑）
+        this.addCommand({
+            id: 'lyricflux-toggle-play',
+            name: '播放/暂停',
+            callback: () => this.toggleActivePlayer(),
+        })
+        this.addCommand({
+            id: 'lyricflux-next-song',
+            name: '下一首',
+            callback: () => this.stepSong(1),
+        })
+        this.addCommand({
+            id: 'lyricflux-prev-song',
+            name: '上一首',
+            callback: () => this.stepSong(-1),
+        })
+        this.addCommand({
+            id: 'lyricflux-open-playlist-popup',
+            name: '打开歌单弹窗',
+            callback: () => void this.openSongListPopup(),
+        })
+        this.addCommand({
+            id: 'lyricflux-open-download',
+            name: '打开下载弹窗',
+            callback: () => new DownloadModal(this.app, this).open(),
         })
 
         // Re-emit state when switching to a note with a renderer

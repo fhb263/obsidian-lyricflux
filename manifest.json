@@ -1,7 +1,7 @@
 {
 	"id": "obsidian-lyricflux",
 	"name": "LyricFlux",
-	"version": "1.4.2",
+	"version": "1.4.3",
 	"minAppVersion": "0.15.0",
 	"description": "实现沉浸式听歌，侧边栏内嵌歌词播放器、逐字高亮，支持MP3标签编辑、在线歌词获取与翻译，主流平台歌曲下载与试听",
 	"author": "fhb263",

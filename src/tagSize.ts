@@ -52,6 +52,31 @@ export function estimateEmbeddedSize(tags: SizeTags): number {
     )
 }
 
+/** M4A atom 写入的层级固定开销近似：moov/udta/meta/ilst 4 层 box 头（8×4=32）+ meta version/flags（4）+ 余量（4） */
+const M4A_FIXED_OVERHEAD = 40
+
+/** M4A 文本标签原子字节：atom 头 8 + data box 头 8 + utf8 文本（空串视为无原子） */
+const m4aTextAtomBytes = (text: string | undefined): number =>
+    text ? 8 + 8 + utf8Len(text) : 0
+
+/** M4A 封面原子字节：atom 头 8 + data box 头 8 + 图片字节（undefined/null 计 0） */
+const m4aCoverAtomBytes = (cover: SizeTags['cover']): number => {
+    if (!cover || cover.data.byteLength === 0) return 0
+    return 8 + 8 + cover.data.byteLength
+}
+
+/** 估算 M4A 标签写入后的字节增量（近似，与 writeMp4Tags 结构对齐） */
+export function estimateM4aEmbeddedSize(tags: SizeTags): number {
+    return (
+        M4A_FIXED_OVERHEAD +
+        m4aTextAtomBytes(tags.title) +
+        m4aTextAtomBytes(tags.artist) +
+        m4aTextAtomBytes(tags.album) +
+        m4aTextAtomBytes(tags.lyrics) +
+        m4aCoverAtomBytes(tags.cover)
+    )
+}
+
 /** 格式化文件大小：3.06 MB / 125 KB / 500 B */
 export function formatBytes(bytes: number): string {
     const b = Math.max(0, Math.round(bytes))

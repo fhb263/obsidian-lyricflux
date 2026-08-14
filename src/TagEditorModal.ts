@@ -1,11 +1,12 @@
 import { App, Modal, Notice, Setting, TFile, ButtonComponent, setIcon } from 'obsidian'
 import type LyricsPlugin from 'main'
-import { resolveAudioSource, readAudioFileBytes, parseTagsForPlugin, writeMp3Tags, getAudioFileSize, type Mp3Tags, type AudioSource } from 'tags'
+import { resolveAudioSource, readAudioFileBytes, parseTagsForPlugin, readGenericTags, writeAudioTags, getAudioFileSize, type Mp3Tags, type AudioSource } from 'tags'
 import { downloadImage } from 'onlineLyrics'
 import { searchCandidates, fetchSongLyrics, translateLyricText, type DownloadSong } from 'downloadManager'
 import { formatDuration } from 'downloadUtils'
-import { estimateEmbeddedSize, formatBytes } from 'tagSize'
+import { estimateEmbeddedSize, estimateM4aEmbeddedSize, formatBytes } from 'tagSize'
 import { estimateMp3Duration, formatDurationColon } from 'mp3Duration'
+import { extractMp4Duration } from 'renderers/mp4'
 import { detectAudioContainer } from 'songScanner'
 
 /** 多源来源标签（候选列表来源胶囊显示） */
@@ -27,6 +28,7 @@ export default class TagEditorModal extends Modal {
     private fetching = false // 在线歌词获取中标志（防重复点击）
     private fileSizeBytes = 0 // 当前文件字节数（0 = 读取失败/未知）
     private durationSec = 0 // 当前音频时长（秒，0 = 解析失败/未知）
+    private container: 'mp3' | 'm4a' = 'mp3' // 真实容器（编辑弹窗按容器分派写入与体积估算）
     private baselineEmbedded = 0 // 打开时原标签在 ID3v2 中的估算字节，用于计算保存后的预计增量
     private sizeDescEl: HTMLElement | null = null // 「文件大小」提示行，随编辑实时刷新
     private lyricCandidatesEl: HTMLElement | null = null // 多平台歌词候选列表容器
@@ -36,11 +38,20 @@ export default class TagEditorModal extends Modal {
     private translateCancelled = false // 翻译取消标志（翻译中点按钮置 true 中断）
     private translateStartedAt = 0 // 翻译开始时间（performance.now），用于估算剩余时间
     private translateAbort: AbortController | null = null // 翻译取消控制器：abort 立即中止在途 DeepSeek 请求
-    private translateProgressTimer: number | null = null // 动画进度条计时器：20 秒内 0→99%，超时卡 99% 等真实结果
-    private translateProgressFlashTimer: number | null = null // 翻译完成「瞬间 100%」短暂停留后隐藏的定时器
+    private translateSecondsTimer: number | null = null // DeepSeek 已用秒数计时器（1s 刷新）
+    private translateSeconds = 0 // DeepSeek 已用秒数
+    private translateTimeoutHintShown = false // 60s 提示是否已显示（只显示一次）
+    private translateDoneTimer: number | null = null // 完成「✓ 翻译完成」短暂停留后隐藏的定时器
     private translateProgressWrap: HTMLElement | null = null // 翻译进度条容器
     private translateProgressFill: HTMLElement | null = null // 翻译进度条填充
     private translateProgressText: HTMLElement | null = null // 翻译进度文字
+    private translateSpinner: HTMLElement | null = null // DeepSeek 转圈
+    private translateTimeoutHintEl: HTMLElement | null = null // 60s 超时提示文本
+    private translateProgressTrack: HTMLElement | null = null // 进度条轨道（DeepSeek 时隐藏）
+    private translateReasoningAccum = '' // 流式思考文本累计（仅用于截取片段，不整体展示）
+    private translateReasoningShown = false // 是否已展示过思考片段（展示期间不覆盖为秒数文本）
+    private translateReasoningPendingNew = false // 有新思考文本待展示（供秒数计时器轮询节流）
+    private translateReasoningLastShown = 0 // 上次展示片段的时间戳（≥2s 才更新一次，做到「时不时」）
 
     constructor(
         app: App,
@@ -59,37 +70,47 @@ export default class TagEditorModal extends Modal {
         const loading = this.contentEl.createDiv({ cls: 'lyrics-tag-loading', text: '正在读取标签…' })
         this.source = this.initialSource ?? await resolveAudioSource(this.app, this.notePath)
         if (!this.source) {
-            new Notice('未找到该歌曲的 MP3 文件')
+            new Notice('未找到该歌曲的音频文件')
             this.close()
             return
         }
-        // 仅 MP3 可编辑：其余格式只读展示，拒绝编辑以免把 ID3 帧写进 FLAC/M4A/OGG 损坏文件
-        const isMp3 = this.source.type === 'vault'
-            ? /\.mp3$/i.test(this.source.file?.name ?? '')
-            : /\.mp3$/i.test(this.source.path ?? '')
-        if (!isMp3) {
-            new Notice('仅 MP3 可编辑标签，该格式为只读展示', 4000)
+        // 可编辑格式：MP3/M4A（node-id3 写 MP3、writeMp4Tags 写 M4A）；其余只读展示
+        const extEditable = this.source.type === 'vault'
+            ? /\.(mp3|m4a)$/i.test(this.source.file?.name ?? '')
+            : /\.(mp3|m4a)$/i.test(this.source.path ?? '')
+        if (!extEditable) {
+            new Notice('仅 MP3/M4A 可编辑标签，该格式为只读展示', 4000)
             this.close()
             return
         }
         const bytes = await readAudioFileBytes(this.app, this.source)
-        // 真实容器检测：扩展名为 .mp3 但实为 M4A/AAC（从 mp4 提取只改扩展名）等伪 mp3，
-        // 若按 MP3 编辑保存，node-id3 会把 M4A 容器按 MPEG 处理破坏 moov atom → 文件损坏。
-        // 直接拒绝编辑并提示，避免破坏文件。
+        // 真实容器检测：扩展名 .mp3 实为 M4A/AAC（从 mp4 提取只改扩展名）等伪扩展名，
+        // 按真实容器编辑；FLAC/OGG 无写入器直接拒绝，避免损坏文件。
         if (bytes) {
             const container = detectAudioContainer(bytes)
-            if (container !== 'mp3' && container !== 'unknown') {
-                const label = container === 'm4a' ? 'M4A/AAC' : container.toUpperCase()
-                new Notice(`该文件实为 ${label} 格式（扩展名为 .mp3），为避免损坏文件已禁止编辑`, 6000)
+            if (container === 'flac' || container === 'ogg') {
+                new Notice(`该文件实为 ${container.toUpperCase()} 格式，为避免损坏文件已禁止编辑`, 6000)
                 this.close()
                 return
             }
+            this.container = container === 'm4a' ? 'm4a' : 'mp3'
         }
-        this.tags = bytes ? parseTagsForPlugin(bytes) ?? {} : {}
-        this.durationSec = bytes ? estimateMp3Duration(bytes) ?? 0 : 0
+        let tags: Mp3Tags = {}
+        if (bytes) {
+            if (this.container === 'm4a') {
+                // M4A：readGenericTags（jsmediatags + 自研文本原子兜底）读 MP4 atom（node-id3 只认 MP3 ID3 帧）
+                tags = (await readGenericTags(bytes)) ?? {}
+            } else {
+                tags = parseTagsForPlugin(bytes) ?? {}
+            }
+        }
+        this.tags = tags
+        this.durationSec = bytes
+            ? (this.container === 'm4a' ? extractMp4Duration(bytes) ?? 0 : estimateMp3Duration(bytes) ?? 0)
+            : 0
         const size = await getAudioFileSize(this.app, this.source)
         this.fileSizeBytes = size ?? 0
-        this.baselineEmbedded = estimateEmbeddedSize(this.tags)
+        this.baselineEmbedded = this.container === 'm4a' ? estimateM4aEmbeddedSize(this.tags) : estimateEmbeddedSize(this.tags)
         loading.remove()
         this.render()
     }
@@ -134,12 +155,17 @@ export default class TagEditorModal extends Modal {
         lyricsArea.addEventListener('input', () => { this.tags.lyrics = lyricsArea.value; this.updateSizeEstimate() })
         lyricsSetting.addButton((btn) => btn.setButtonText('翻译歌词').onClick(() => void this.translateLyrics(lyricsArea, btn)))
         lyricsSetting.addButton((btn) => btn.setCta().setButtonText('获取歌词').onClick(() => void this.fetchOnlineLyrics(lyricsArea, btn)))
-        // 翻译歌词进度条（默认隐藏，翻译中显示；位于歌词框正下方）
+        // 翻译歌词进度区（默认隐藏，翻译中显示；位于歌词框正下方）
+        // DeepSeek：转圈 + 秒数（无假进度条）；Google/MyMemory：逐行真实进度条
         const translateProgressWrap = contentEl.createDiv({ cls: 'lyrics-tag-translate-progress lyrics-tag-translate-progress-hidden' })
         const translateProgressTrack = translateProgressWrap.createDiv({ cls: 'lyrics-tag-translate-progress-track' })
         this.translateProgressFill = translateProgressTrack.createDiv({ cls: 'lyrics-tag-translate-progress-fill' })
-        this.translateProgressText = translateProgressWrap.createDiv({ cls: 'lyrics-tag-translate-progress-text' })
+        const translateProgressTextRow = translateProgressWrap.createDiv({ cls: 'lyrics-tag-translate-progress-text-row' })
+        this.translateSpinner = translateProgressTextRow.createSpan({ cls: 'lyrics-tag-translate-spinner lyrics-tag-translate-progress-hidden' })
+        this.translateProgressText = translateProgressTextRow.createSpan({ cls: 'lyrics-tag-translate-progress-text' })
+        this.translateTimeoutHintEl = translateProgressWrap.createDiv({ cls: 'lyrics-tag-translate-timeout-hint lyrics-tag-translate-progress-hidden' })
         this.translateProgressWrap = translateProgressWrap
+        this.translateProgressTrack = translateProgressTrack
         // 多平台歌词候选列表（获取歌词后展示，点击某条导入后收起）
         const candidateBox = contentEl.createDiv({ cls: 'lyrics-tag-lyric-candidates lyrics-tag-lyric-candidates-hidden' })
         this.lyricCandidatesEl = candidateBox
@@ -312,6 +338,8 @@ export default class TagEditorModal extends Modal {
         if (this.translating) {
             this.translateCancelled = true
             this.translateAbort?.abort()
+            btn.setButtonText('取消中…')
+            btn.setDisabled(true)
             return
         }
         const text = (this.tags.lyrics ?? lyricsArea.value ?? '').trim()
@@ -320,6 +348,10 @@ export default class TagEditorModal extends Modal {
             return
         }
         this.translating = true
+        if (this.translateDoneTimer !== null) { // 上一轮完成显示定时器：新一轮开始时作废，避免隐藏新一轮进度
+            clearTimeout(this.translateDoneTimer)
+            this.translateDoneTimer = null
+        }
         this.translateCancelled = false
         this.translateStartedAt = performance.now()
         const translateAbortCtrl = new AbortController()
@@ -330,11 +362,12 @@ export default class TagEditorModal extends Modal {
         const translateApiKey = provider === 'deepseek' ? (settings.translateDeepseekApiKey ?? '') : ''
         const translatePrompt = provider === 'deepseek' ? (settings.translateDeepseekPrompt ?? '') : ''
         btn.setButtonText('取消')
-        // DeepSeek 单次请求无真实中间进度 → 用动画进度条（20 秒内 0→99%，超时卡 99% 等真实结果）；
+        // DeepSeek 单次请求无真实中间进度 → 转圈 + 秒数（不显示假进度条）；
         // 其他源逐行并发仍走真实进度回调
         if (provider === 'deepseek') {
-            this.startTranslateProgressAnim()
+            this.startTranslateSeconds()
         } else {
+            this.translateProgressTrack?.removeClass('lyrics-tag-translate-progress-hidden')
             this.showTranslateProgress(0, '正在翻译…', 0, 1)
         }
         try {
@@ -355,6 +388,7 @@ export default class TagEditorModal extends Modal {
                 translateApiKey,
                 translatePrompt,
                 translateAbortCtrl.signal,
+                (reasoning) => this.showTranslateReasoning(reasoning),
             )
             if (!bilingual) {
                 new Notice(this.translateCancelled ? '已取消翻译' : '翻译失败（网络错误或歌词为空）', 5000)
@@ -363,14 +397,18 @@ export default class TagEditorModal extends Modal {
             lyricsArea.value = bilingual
             this.tags.lyrics = bilingual
             this.updateSizeEstimate()
-            // AI 提前返回（进度条可能才到 20%）：瞬间到 100%，短暂停留后隐藏（更好的完成反馈）
-            this.stopTranslateProgressAnim()
-            this.showTranslateProgress(100, '翻译完成', 0, 1)
-            if (this.translateProgressFlashTimer !== null) clearTimeout(this.translateProgressFlashTimer)
-            this.translateProgressFlashTimer = window.setTimeout(() => {
-                this.translateProgressFlashTimer = null
+            // 完成：DeepSeek 显示「✓ 翻译完成」（无进度条）；逐行源进度条到 100%；短暂停留后隐藏
+            this.stopTranslateSeconds()
+            if (provider === 'deepseek') {
+                if (this.translateProgressText) this.translateProgressText.setText('✓ 翻译完成')
+            } else {
+                this.showTranslateProgress(100, '翻译完成', 0, 1)
+            }
+            if (this.translateDoneTimer !== null) clearTimeout(this.translateDoneTimer)
+            this.translateDoneTimer = window.setTimeout(() => {
+                this.translateDoneTimer = null
                 this.hideTranslateProgress()
-            }, 400)
+            }, 1200)
             new Notice(this.translateCancelled ? `已中断，保留已翻译 ${this.countTranslated(bilingual)} 行` : '已生成 原文 | 译文 双语歌词', 3000)
         } catch (e) {
             new Notice(`翻译失败：${(e as Error).message || '网络错误'}`, 5000)
@@ -378,11 +416,11 @@ export default class TagEditorModal extends Modal {
             this.translating = false
             this.translateCancelled = false
             this.translateAbort = null
-            this.stopTranslateProgressAnim() // 停动画计时器（DeepSeek 动画进度）
-            // 成功分支已安排 flash timer 延迟隐藏（显示 100% 完成感）；失败/取消/异常才立即隐藏
-            if (this.translateProgressFlashTimer === null) {
-                this.hideTranslateProgress()
+            this.stopTranslateSeconds()
+            if (this.translateDoneTimer === null) {
+                this.hideTranslateProgress() // 失败/取消/异常立即隐藏；成功分支由 done timer 延迟隐藏
             }
+            btn.setDisabled(false)
             btn.setButtonText('翻译歌词')
         }
     }
@@ -392,36 +430,51 @@ export default class TagEditorModal extends Modal {
         return bilingual.split(/\r?\n/).filter((l) => l.includes(' | ')).length
     }
 
-    /**
-     * 启动动画式进度条（v1.4.2）：DeepSeek 单次请求期间无真实中间进度，
-     * 用 20 秒内 0→99% 的模拟动画让用户感知「在跑」；超过 20 秒仍未返回结果则停在 99% 等待真实结果。
-     */
-    private startTranslateProgressAnim(): void {
-        this.stopTranslateProgressAnim()
-        const started = performance.now()
-        const ANIM_MS = 20000 // 20 秒内播完
-        this.translateProgressTimer = window.setInterval(() => {
-            const elapsed = performance.now() - started
-            const pct = Math.min(99, Math.round((elapsed / ANIM_MS) * 99))
-            this.showTranslateProgress(pct, '正在翻译…（AI 生成中）', 0, 1)
-            if (pct >= 99) this.stopTranslateProgressAnim() // 播完停表，卡 99% 等真实结果
-        }, 200)
+    /** 启动 DeepSeek 已用秒数计时：转圈 + 每秒刷新「N 秒」；≥60s 显示一次超时提示（请求仍在途，可取消） */
+    private startTranslateSeconds(): void {
+        this.stopTranslateSeconds()
+        this.translateSeconds = 0
+        this.translateTimeoutHintShown = false
+        this.translateProgressTrack?.addClass('lyrics-tag-translate-progress-hidden')
+        this.translateSpinner?.removeClass('lyrics-tag-translate-progress-hidden')
+        this.translateTimeoutHintEl?.addClass('lyrics-tag-translate-progress-hidden')
+        this.showTranslateProgress(0, '正在翻译…（AI 生成中）0 秒', 0, 1, false)
+        this.translateSecondsTimer = window.setInterval(() => {
+            this.translateSeconds += 1
+            const sec = this.translateSeconds
+            if (this.translateReasoningShown) {
+                // 思考片段展示中：秒数计时器只负责轮询刷新（≥2s 且有待展示新文本才覆盖）
+                if (this.translateReasoningPendingNew && Date.now() - this.translateReasoningLastShown >= 2000) {
+                    this.showTranslateProgress(0, `思考中（${this.translateElapsedSec()} 秒）：${this.buildReasoningSnippet()}`, 0, 1, false)
+                    this.translateReasoningLastShown = Date.now()
+                    this.translateReasoningPendingNew = false
+                }
+            } else {
+                this.showTranslateProgress(0, `正在翻译…（AI 生成中）${sec} 秒`, 0, 1, false)
+            }
+            if (sec >= 60 && !this.translateTimeoutHintShown && this.translateTimeoutHintEl) {
+                this.translateTimeoutHintShown = true
+                this.translateTimeoutHintEl.removeClass('lyrics-tag-translate-progress-hidden')
+                this.translateTimeoutHintEl.setText('已超过 60 秒，若长时间无响应可取消后重试')
+            }
+        }, 1000)
     }
 
-    /** 停止动画进度条计时器（翻译完成/失败/取消时调用） */
-    private stopTranslateProgressAnim(): void {
-        if (this.translateProgressTimer !== null) {
-            clearInterval(this.translateProgressTimer)
-            this.translateProgressTimer = null
+    /** 停止秒数计时并隐藏转圈（完成/失败/取消时调用） */
+    private stopTranslateSeconds(): void {
+        if (this.translateSecondsTimer !== null) {
+            clearInterval(this.translateSecondsTimer)
+            this.translateSecondsTimer = null
         }
+        this.translateSpinner?.addClass('lyrics-tag-translate-progress-hidden')
     }
 
-    /** 显示并更新翻译进度条（percent 0-100；label 状态文字；etaMs 预计剩余毫秒，0 或不足则省略） */
-    private showTranslateProgress(percent: number, label: string, etaMs = 0, total = 0): void {
+    /** 显示并更新翻译进度条（percent 0-100；label 状态文字；etaMs 预计剩余毫秒，0 或不足则省略；showPercent=false 时省略百分比后缀，供转圈计时显示） */
+    private showTranslateProgress(percent: number, label: string, etaMs = 0, total = 0, showPercent = true): void {
         if (!this.translateProgressWrap || !this.translateProgressFill || !this.translateProgressText) return
         this.translateProgressWrap.removeClass('lyrics-tag-translate-progress-hidden')
         this.translateProgressFill.style.width = `${percent}%`
-        let text = `${label}（${percent}%）`
+        let text = showPercent ? `${label}（${percent}%）` : label
         // 已有进度且总行数 >1 时显示预计剩余时间
         if (etaMs > 0 && total > 1) {
             const eta = this.formatEta(etaMs)
@@ -446,6 +499,40 @@ export default class TagEditorModal extends Modal {
         if (!this.translateProgressWrap || !this.translateProgressFill) return
         this.translateProgressWrap.addClass('lyrics-tag-translate-progress-hidden')
         this.translateProgressFill.style.width = '0%'
+        this.translateReasoningAccum = ''
+        this.translateReasoningShown = false
+        this.translateReasoningPendingNew = false
+    }
+
+    /** 流式思考片段显示（覆盖式，非累积框）：新文本节流为每 ≥2s 覆盖一次进度文本为「思考中：<截断片段>」 */
+    private showTranslateReasoning(text: string): void {
+        if (!this.translateReasoningAccum) {
+            // 首次收到思考：立即覆盖展示一段
+            this.translateReasoningAccum = text
+            this.translateReasoningShown = true
+            this.translateReasoningPendingNew = false
+            this.translateReasoningLastShown = Date.now()
+            this.showTranslateProgress(0, `思考中（${this.translateElapsedSec()} 秒）：${this.buildReasoningSnippet()}`, 0, 1, false)
+            return
+        }
+        this.translateReasoningAccum += text
+        this.translateReasoningPendingNew = true
+        if (Date.now() - this.translateReasoningLastShown >= 2000) {
+            this.showTranslateProgress(0, `思考中（${this.translateElapsedSec()} 秒）：${this.buildReasoningSnippet()}`, 0, 1, false)
+            this.translateReasoningLastShown = Date.now()
+            this.translateReasoningPendingNew = false
+        }
+    }
+
+    /** 截断思考片段：单行化 + 取最近 ~40 字符（过长加省略号前缀） */
+    private buildReasoningSnippet(): string {
+        const clean = this.translateReasoningAccum.replace(/\s+/g, ' ').trim()
+        return clean.length > 40 ? `…${clean.slice(-40)}` : clean
+    }
+
+    /** 翻译已用秒数（以开始时刻为准，思考片段展示期间同样实时递增） */
+    private translateElapsedSec(): number {
+        return Math.floor((performance.now() - this.translateStartedAt) / 1000)
     }
 
     /** 搜索多平台候选，过滤有封面的，展示封面候选缩略图列表（点击某条导入） */
@@ -577,7 +664,7 @@ export default class TagEditorModal extends Modal {
             return
         }
         // 预计大小 ≈ 当前大小 − 原标签字节 + 新标签字节（node-id3 重写标签区并保留音频）
-        const newEmbedded = estimateEmbeddedSize(this.tags)
+        const newEmbedded = this.container === 'm4a' ? estimateM4aEmbeddedSize(this.tags) : estimateEmbeddedSize(this.tags)
         const estimated = Math.max(0, this.fileSizeBytes - this.baselineEmbedded + newEmbedded)
         const delta = estimated - this.fileSizeBytes
         const deltaText = delta === 0 ? '' : `（${delta > 0 ? '+' : '-'}${formatBytes(Math.abs(delta))}）`
@@ -608,7 +695,7 @@ export default class TagEditorModal extends Modal {
         this.saving = true
         try {
             // 1. 先写标签（使用当前 source 路径）
-            const ok = await writeMp3Tags(this.app, this.source, this.tags)
+            const ok = await writeAudioTags(this.app, this.source, this.tags)
             if (!ok) {
                 new Notice('保存失败，已还原原文件', 5000)
                 return
@@ -714,6 +801,14 @@ export default class TagEditorModal extends Modal {
     }
 
     onClose() {
+        if (this.translateSecondsTimer !== null) {
+            clearInterval(this.translateSecondsTimer)
+            this.translateSecondsTimer = null
+        }
+        if (this.translateDoneTimer !== null) {
+            clearTimeout(this.translateDoneTimer)
+            this.translateDoneTimer = null
+        }
         this.contentEl.empty()
     }
 }

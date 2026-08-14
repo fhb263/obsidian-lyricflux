@@ -484,7 +484,8 @@ export default class LyricsView extends ItemView {
         this.openSongListPopup()
     }
 
-    private openSongListPopup() {
+    /** 打开歌单弹窗（状态栏点击 / 快捷键命令共用） */
+    public openSongListPopup() {
         if (!this.lyricsPanel) return
         this.closeSongListPopup()
         this.lyricsPanel.addClass('lyrics-panel-hidden')
@@ -519,15 +520,18 @@ export default class LyricsView extends ItemView {
         })
         this.songListSearchEl.addEventListener('input', () => this.renderPopupSongList())
 
-        // Type filter（来自 frontmatter type 字段）
+        // Type filter（来自 frontmatter type 字段；「未分类」= 无 type 或 type 为空的歌）
+        const songsAll = this.plugin.getSongList()
         const types = Array.from(new Set(
-            this.plugin.getSongList().map((s) => s.type).filter((t) => t && t.trim()),
+            songsAll.map((s) => s.type).filter((t) => t && t.trim()),
         )).sort((a, b) => a.localeCompare(b))
-        if (types.length > 0) {
-            if (!types.includes(this.songListTypeFilter)) this.songListTypeFilter = 'all'
+        const hasUncategorized = songsAll.some((s) => !s.type || !s.type.trim())
+        if (types.length > 0 || hasUncategorized) {
+            if (!types.includes(this.songListTypeFilter) && this.songListTypeFilter !== '未分类') this.songListTypeFilter = 'all'
             const filterWrap = filterRow.createDiv({ cls: 'lyrics-song-popup-filter' })
             const select = filterWrap.createEl('select', { cls: 'lyrics-song-popup-filter-select' })
             select.createEl('option', { value: 'all', text: '全部类型' })
+            if (hasUncategorized) select.createEl('option', { value: '未分类', text: '未分类' })
             types.forEach((t) => select.createEl('option', { value: t, text: t }))
             select.value = this.songListTypeFilter
             select.addEventListener('change', () => {
@@ -559,7 +563,9 @@ export default class LyricsView extends ItemView {
             const matchQuery = !query
                 || s.title.toLowerCase().includes(query)
                 || s.actor.toLowerCase().includes(query)
-            const matchType = typeFilter === 'all' || s.type === typeFilter
+            const matchType = typeFilter === 'all'
+                || (typeFilter === '未分类' && (!s.type || !s.type.trim()))
+                || s.type === typeFilter
             return matchQuery && matchType
         })
         // 计数：无筛选时显示总数，有筛选时显示「筛选后 / 总数」
@@ -599,8 +605,8 @@ export default class LyricsView extends ItemView {
                 setIcon(thumb, 'music')
             }
 
-            // 编辑/查看标签按钮（hover 显示）：仅 MP3 可编辑（铅笔）；其余裸音频格式只读查看（眼睛）
-            if (song.kind === 'note' || /\.mp3$/i.test(song.path)) {
+            // 编辑/查看标签按钮（hover 显示）：MP3/M4A 可编辑（铅笔）；其余裸音频格式只读查看（眼睛）
+            if (song.kind === 'note' || /\.(mp3|m4a)$/i.test(song.path)) {
                 const editBtn = item.createDiv({ cls: 'lyrics-songs-edit-btn' })
                 setIcon(editBtn, 'pencil')
                 editBtn.setAttribute('title', '编辑标签')
@@ -616,7 +622,7 @@ export default class LyricsView extends ItemView {
                     }
                 })
             } else {
-                // 非 MP3 裸音频（FLAC/M4A/OGG 等）：只读查看标签
+                // 非 MP3/M4A 裸音频（FLAC/OGG 等）：只读查看标签
                 const viewBtn = item.createDiv({ cls: 'lyrics-songs-edit-btn' })
                 setIcon(viewBtn, 'eye')
                 viewBtn.setAttribute('title', '查看标签')

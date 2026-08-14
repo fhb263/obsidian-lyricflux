@@ -62,12 +62,15 @@ export function parseMyMemoryResponse(raw: string): string | null {
 /** DeepSeek 翻译 API 端点（OpenAI 兼容 `chat/completions`，v1.4.2） */
 export const DEEPSEEK_API_URL = 'https://api.deepseek.com/chat/completions'
 
-/** DeepSeek 翻译默认提示词：要求**每行仅输出译文**（原文/格式由 buildBilingualLrc 拼接），整首一次翻译避免逐行上下文断裂 */
+/** DeepSeek 翻译默认提示词（v1.4.3）：适配多场景（元数据标签行不翻译原样保留、已双语行只译原文、人名/语气词/数字保留），要求**每行仅输出译文**（原文/格式由 buildBilingualLrc 拼接），整首一次翻译避免逐行上下文断裂 */
 export const DEFAULT_DEEPSEEK_PROMPT =
-    '你是专业的歌词翻译助手。下面是用户提供的歌词，每行前面有数字编号。' +
-    '请把每一行翻译为中文，每行仅输出该行的译文，一行对应一行，用换行分隔。' +
-    '如果某行原文已经包含译文（含竖线分隔），请只翻译其中非中文的原文部分。' +
-    '不要输出编号、不要重复原文、不要加任何分隔符或格式标记，只输出翻译结果，不要任何解释。'
+    '你是专业的歌词翻译助手。下面是用户提供的歌词，每行前面有数字编号，请把每行歌词翻译成目标语言（通常为中文）。\n' +
+    '规则：\n' +
+    '1. 每行仅输出该行的译文，一行对应一行，用换行分隔，不要输出编号；\n' +
+    '2. 元数据/标签行（形如 [ti:标题]、[ar:歌手]、[al:专辑]、[by:作者]、[offset:偏移] 等方括号标签）不翻译，原样输出；\n' +
+    '3. 某行原文已含译文（竖线分隔「原文 | 译文」）时，只翻译其中非中文的原文部分；\n' +
+    '4. 人名、语气词、舞台提示、纯数字、重复段标记等无法翻译的内容，保留原文；\n' +
+    '5. 不要重复原文、不要加任何分隔符或格式标记，只输出翻译结果，不要任何解释。'
 
 /**
  * 构造 DeepSeek `chat/completions` 请求（POST，OpenAI 兼容格式）。
@@ -78,12 +81,13 @@ export function buildDeepseekRequest(
     apiKey: string,
     prompt: string,
     target: string = 'zh-CN',
+    stream = false,
 ): { url: string; body: string; headers: Record<string, string> } {
     const targetName = target === 'zh-CN' ? '中文' : target === 'en' ? '英文' : target === 'ja' ? '日语' : target === 'ko' ? '韩语' : target
     const sys = 'You are a professional lyrics translator.'
     const userMsg = prompt && prompt.trim()
         ? `${prompt.trim()}\n\n歌词：\n${text}`
-        : `把下面歌词逐行翻译成${targetName}，每行按「原文 | 译文」输出：\n${text}`
+        : `${DEFAULT_DEEPSEEK_PROMPT}\n\n目标语言：${targetName}\n歌词：\n${text}`
     const body = JSON.stringify({
         // v1.4.2 默认使用 deepseek-v4-flash（设置页「翻译 → DeepSeek」有注释说明）
         model: 'deepseek-v4-flash',
@@ -92,7 +96,7 @@ export function buildDeepseekRequest(
             { role: 'user', content: userMsg },
         ],
         temperature: 0.3,
-        stream: false,
+        stream,
     })
     return {
         url: DEEPSEEK_API_URL,
@@ -154,6 +158,56 @@ export function splitDeepseekLyricsResponse(raw: string, expected: number): Arra
 }
 
 /**
+ * 解析一行 SSE `data:` 负载（DeepSeek 流式响应）：`{"choices":[{"delta":{"reasoning_content":"…","content":"…"}}]}`。
+ * [DONE] / finish_reason=stop → { done: true }；无效行 → null。
+ */
+export function parseDeepseekSseData(rawLine: string): { reasoning?: string; content?: string; done?: boolean } | null {
+    const trimmed = rawLine.trim()
+    if (!trimmed.startsWith('data:')) return null
+    const payload = trimmed.slice(5).trim()
+    if (!payload || payload === '[DONE]') return { done: true }
+    try {
+        const data = JSON.parse(payload)
+        if (data?.choices?.[0]?.finish_reason === 'stop') return { done: true }
+        const delta = data?.choices?.[0]?.delta
+        if (!delta) return null
+        const out: { reasoning?: string; content?: string } = {}
+        const reasoning = delta.reasoning_content ?? delta.reasoning
+        if (typeof reasoning === 'string' && reasoning) out.reasoning = reasoning
+        if (typeof delta.content === 'string' && delta.content) out.content = delta.content
+        return Object.keys(out).length > 0 ? out : null
+    } catch {
+        return null
+    }
+}
+
+/** DeepSeek SSE 流式累计器：按行解析 `data:` 分片，累计 reasoning/content；供实时显示思考过程 */
+export class DeepseekSseAccumulator {
+    private buffer = ''
+    reasoning = ''
+    content = ''
+    done = false
+
+    /** 喂入一段流式文本，返回本次新增的 reasoning 文本（供实时显示）；content 累计供结束后解析 */
+    push(chunk: string): string {
+        this.buffer += chunk
+        let newReasoning = ''
+        let nl: number
+        while ((nl = this.buffer.indexOf('\n')) >= 0) {
+            const line = this.buffer.slice(0, nl).trim()
+            this.buffer = this.buffer.slice(nl + 1)
+            if (!line) continue
+            const parsed = parseDeepseekSseData(line)
+            if (!parsed) continue
+            if (parsed.done) { this.done = true; continue }
+            if (parsed.reasoning) { this.reasoning += parsed.reasoning; newReasoning += parsed.reasoning }
+            if (parsed.content) this.content += parsed.content
+        }
+        return newReasoning
+    }
+}
+
+/**
  * 从歌词文本解析逐行（纯逻辑）：保留每行时间戳前缀，返回 [{ time: '00:01.23' | '', text }]。
  * 支持 `[mm:ss.xx]` 与多个时间戳（取首个）；无时间戳的行 time 为空。
  */
@@ -185,8 +239,8 @@ export function parseLyricLines(lrc: string): LyricLine[] {
         const text = rest.trim()
         if (!stamps.length && !text) continue
         if (!stamps.length) {
-            // 无时间戳行（如 [ti:][ar:] 元数据、标题行）：若含 `[xxx:` 则整体跳过
-            if (/^\[[a-zA-Z]+:/.test(line)) continue
+            // 无时间戳行（含 [ti:][ar:][by:][offset:] 等元数据标签行）：保留原样，
+            // 翻译层识别为标签行后原样输出（不翻译、不丢失）
             lines.push({ time: '', text: line })
         } else {
             for (const stamp of stamps) {
@@ -216,4 +270,45 @@ export function buildBilingualLrc(lines: Array<{ time: string; text: string; tra
         out.push(`${l.time}${l.text} | ${trans}`)
     }
     return out.join('\n')
+}
+
+/** LRC 元数据标签行判别：无时间戳且形如 [ti:…]/[ar:…]/[al:…]/[by:…]/[offset:…] 等（翻译时原样保留） */
+export function isMetaTagLine(line: LyricLine): boolean {
+    return !line.time && /^\[[a-zA-Z]+:/.test(line.text.trim())
+}
+
+/** 拆分可翻译行与元数据标签行（携带原索引，供按原顺序合并） */
+export function splitLyricLines(lines: LyricLine[]): {
+    content: Array<{ line: LyricLine; idx: number }>
+    meta: Array<{ line: LyricLine; idx: number }>
+} {
+    const content: Array<{ line: LyricLine; idx: number }> = []
+    const meta: Array<{ line: LyricLine; idx: number }> = []
+    lines.forEach((line, idx) => {
+        if (!line.text.trim()) return
+        if (isMetaTagLine(line)) meta.push({ line, idx })
+        else content.push({ line, idx })
+    })
+    return { content, meta }
+}
+
+/** 按原顺序合并：标签行原样保留，内容行取对应译文 */
+export function mergeTranslatedRows(
+    lines: LyricLine[],
+    meta: Array<{ line: LyricLine; idx: number }>,
+    translated: Array<{ time: string; text: string; translation?: string }>,
+): Array<{ time: string; text: string; translation?: string }> {
+    const metaIdx = new Set(meta.map((m) => m.idx))
+    const out: Array<{ time: string; text: string; translation?: string }> = []
+    let ti = 0
+    lines.forEach((l, idx) => {
+        if (metaIdx.has(idx)) out.push({ time: l.time, text: l.text, translation: l.text }) // 原样保留（buildBilingualLrc 译文==原文 → 输出原文）
+        else if (l.text.trim() && ti < translated.length) out.push(translated[ti++])
+    })
+    return out
+}
+
+/** 是否全部译文为空（模型整首拒绝/未按格式返回；用于触发默认提示词自动重试） */
+export function isAllRejected(translations: Array<string | null>): boolean {
+    return translations.length > 0 && translations.every((t) => t === null)
 }
